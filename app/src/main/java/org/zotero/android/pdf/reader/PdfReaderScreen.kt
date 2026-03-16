@@ -247,16 +247,15 @@ internal fun PdfReaderScreen(
                 }
             }
 
-            if (viewState.isTranslationActionVisible && !viewState.isTranslationLoading && viewState.translationDialogState == null) {
+            if (!viewState.isTranslationLoading && viewState.translationDialogState == null) {
                 ExtendedFloatingActionButton(
+                    onClick = viewModel::onTranslateQuickActionTapped,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(16.dp),
-                    onClick = viewModel::onTranslateQuickActionTapped,
-                    text = {
-                        Text(text = stringResource(id = org.zotero.android.R.string.translation_action))
-                    }
-                )
+                ) {
+                    Text(text = stringResource(id = org.zotero.android.R.string.translation_action))
+                }
             }
 
             PdfAnnotationNavigationView(viewState = viewState, viewModel = viewModel)
