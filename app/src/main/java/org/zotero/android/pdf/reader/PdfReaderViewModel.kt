@@ -603,7 +603,6 @@ class PdfReaderViewModel @Inject constructor(
     private var contextualTranslationMenuItem: Any? = null
 
     private fun setupSupportedTextSelectionTranslationAction() {
-        registerTextSelectionListenersIfNeeded()
         attachSupportedContextualToolbarTranslationAction()
     }
 
