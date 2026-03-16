@@ -258,9 +258,8 @@ class PdfReaderViewModel @Inject constructor(
     private val translationService by lazy { translationEntryPoint.translationService() }
     private val translationSettingsRepository by lazy { translationEntryPoint.translationSettingsRepository() }
 
-    companion object {
-        private const val ZOTERO_TRANSLATE_MENU_ITEM_ID = 0x7f0f7a11
-    }
+    private val translateMenuItemId: Int
+        get() = org.zotero.android.R.id.pdf_translate_action
 
     override var annotationMaxSideSize = 0
 
@@ -623,78 +622,22 @@ class PdfReaderViewModel @Inject constructor(
                     org.zotero.android.R.string.pdf_highlight
                 )
             }
-            if (sourceItems.none { it.id == ZOTERO_TRANSLATE_MENU_ITEM_ID }) {
-                createTranslatePopupToolbarItem()?.let(sourceItems::add)
+            if (sourceItems.none { it.id == translateMenuItemId }) {
+                sourceItems.add(createTranslatePopupToolbarItem())
             }
             toolbar.menuItems = sourceItems
         }
     }
 
-    private fun createTranslatePopupToolbarItem(): PopupToolbarMenuItem? {
-        val title = context.getString(org.zotero.android.R.string.translation_action)
-        val constructors = PopupToolbarMenuItem::class.java.constructors
-        constructors.forEach { constructor ->
-            val params = constructor.parameterTypes
-            try {
-                when {
-                    params.size == 3 &&
-                        params[0] == Int::class.javaPrimitiveType &&
-                        CharSequence::class.java.isAssignableFrom(params[1]) &&
-                        params[2].name == "kotlin.jvm.functions.Function0" -> {
-                        return constructor.newInstance(
-                            ZOTERO_TRANSLATE_MENU_ITEM_ID,
-                            title,
-                            object : kotlin.jvm.functions.Function0<Unit> {
-                                override fun invoke() {
-                                    onTranslateToolbarTapped()
-                                }
-                            }
-                        ) as PopupToolbarMenuItem
-                    }
-
-                    params.size == 4 &&
-                        params[0] == Int::class.javaPrimitiveType &&
-                        CharSequence::class.java.isAssignableFrom(params[1]) &&
-                        params[3].name == "kotlin.jvm.functions.Function0" -> {
-                        return constructor.newInstance(
-                            ZOTERO_TRANSLATE_MENU_ITEM_ID,
-                            title,
-                            0,
-                            object : kotlin.jvm.functions.Function0<Unit> {
-                                override fun invoke() {
-                                    onTranslateToolbarTapped()
-                                }
-                            }
-                        ) as PopupToolbarMenuItem
-                    }
-
-                    params.size == 3 &&
-                        params[0] == Int::class.javaPrimitiveType &&
-                        CharSequence::class.java.isAssignableFrom(params[1]) &&
-                        params[2] == Runnable::class.java -> {
-                        return constructor.newInstance(
-                            ZOTERO_TRANSLATE_MENU_ITEM_ID,
-                            title,
-                            Runnable { onTranslateToolbarTapped() }
-                        ) as PopupToolbarMenuItem
-                    }
-
-                    params.size == 2 &&
-                        params[0] == Int::class.javaPrimitiveType &&
-                        CharSequence::class.java.isAssignableFrom(params[1]) -> {
-                        return constructor.newInstance(
-                            ZOTERO_TRANSLATE_MENU_ITEM_ID,
-                            title
-                        ) as PopupToolbarMenuItem
-                    }
-                }
-            } catch (_: Throwable) {
-            }
-        }
-        return null
+    private fun createTranslatePopupToolbarItem(): PopupToolbarMenuItem {
+        return PopupToolbarMenuItem(
+            translateMenuItemId,
+            org.zotero.android.R.string.translation_action
+        )
     }
 
     private fun registerTranslatePopupToolbarListener() {
+
         try {
             val listenerMethod = pdfFragment.javaClass.methods.firstOrNull { method ->
                 method.name.contains("PopupToolbar", ignoreCase = true) &&
@@ -715,7 +658,7 @@ class PdfReaderViewModel @Inject constructor(
                 } catch (_: Throwable) {
                     null
                 }
-                if (id == ZOTERO_TRANSLATE_MENU_ITEM_ID) {
+                if (id == translateMenuItemId) {
                     onTranslateToolbarTapped()
                     when (method.returnType) {
                         Boolean::class.javaPrimitiveType, Boolean::class.java -> true
@@ -2446,12 +2389,13 @@ class PdfReaderViewModel @Inject constructor(
             .hideDocumentTitleOverlay()
             .enableStylusOnDetection(true)
             .hideUserInterfaceWhenCreatingAnnotations(false)
+            .textSelectionPopupToolbarEnabled(true)
             .setUserInterfaceViewMode(UserInterfaceViewMode.USER_INTERFACE_VIEW_MODE_MANUAL)
             .build()
     }
 
     override fun loadAnnotationPreviews(keys: List<String>) {
-        if (keys.isEmpty()) else {
+        if (keys.isEmpty()) {
             return
         }
 
