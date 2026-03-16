@@ -1,0 +1,88 @@
+name: Build Debug APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - '**'
+  pull_request:
+
+jobs:
+  build-debug:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Write PSPDFKIT key if secret exists
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.PSPDFKIT_KEY }}" ]; then
+            echo "${{ secrets.PSPDFKIT_KEY }}" | sed 's/./& /g' > pspdfkit-key.txt
+          elif [ ! -f pspdfkit-key.txt ]; then
+            echo "" > pspdfkit-key.txt
+          fi
+
+      - name: Write google-services.json if secret exists
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.GOOGLE_SERVICES_JSON }}" ]; then
+            printf '%s' '${{ secrets.GOOGLE_SERVICES_JSON }}' > app/google-services.json
+          fi
+
+      - name: Grant execute permission for scripts and gradle wrapper
+        run: |
+          chmod +x gradlew
+          chmod +x scripts/bundle_translators.py
+          chmod +x scripts/bundle_translation.py
+          chmod +x scripts/bundle_pdf-worker.py
+          chmod +x scripts/bundle_citation_proc.py
+          chmod +x scripts/bundle_csl_locales.py
+          chmod +x scripts/bundle_styles.py
+          chmod +x scripts/bundle_utilities.sh
+
+      - name: Bundle translators
+        run: python3 scripts/bundle_translators.py
+
+      - name: Bundle translation
+        run: python3 scripts/bundle_translation.py
+
+      - name: Bundle pdf worker
+        run: python3 scripts/bundle_pdf-worker.py
+
+      - name: Bundle citation proc
+        run: python3 scripts/bundle_citation_proc.py
+
+      - name: Bundle CSL locales
+        run: python3 scripts/bundle_csl_locales.py
+
+      - name: Bundle styles
+        run: python3 scripts/bundle_styles.py
+
+      - name: Bundle utilities
+        run: scripts/bundle_utilities.sh
+
+      - name: Build debug APK
+        run: ./gradlew --no-configuration-cache assembleDevDebug --stacktrace
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zotero-dev-debug-apk
+          path: app/build/outputs/apk/**/**/*.apk
+          if-no-files-found: error

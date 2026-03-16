@@ -621,7 +621,7 @@ class PdfReaderViewModel @Inject constructor(
             if (textHighlightItemIndex >= 0) {
                 sourceItems[textHighlightItemIndex] = PopupToolbarMenuItem(
                     R.id.pspdf__text_selection_toolbar_item_highlight,
-                    Strings.pdf_highlight
+                    context.getString(Strings.pdf_highlight)
                 )
             }
             if (sourceItems.none { it.id == ZOTERO_TRANSLATE_MENU_ITEM_ID }) {

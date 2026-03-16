@@ -24,10 +24,10 @@ class TranslationService(
         val settings = settingsRepository.getSettings()
         val resolvedTarget = targetLanguage ?: settings.targetLanguage
         if (text.isBlank()) {
-            return@withContext Result.failure(IllegalArgumentException("翻译文本不能为空"))
+            return@withContext Result.failure(IllegalArgumentException("No text selected"))
         }
         if (!settings.hasValidCredentials()) {
-            return@withContext Result.failure(IllegalStateException("请先在设置中配置翻译凭证"))
+            return@withContext Result.failure(IllegalStateException("Configure translation credentials in Settings first"))
         }
         runCatching {
             when (settings.api) {
@@ -64,12 +64,12 @@ class TranslationService(
         )
         val json = postForm("https://fanyi-api.baidu.com/api/trans/vip/translate", params)
         if (json.has("error_code")) {
-            throw IllegalStateException(json.optString("error_msg", "百度翻译请求失败"))
+            throw IllegalStateException(json.optString("error_msg", "Baidu translation request failed"))
         }
         val translations = json.optJSONArray("trans_result") ?: JSONArray()
         val translatedText = translations.optJSONObject(0)?.optString("dst").orEmpty()
         if (translatedText.isBlank()) {
-            throw IllegalStateException("百度翻译未返回结果")
+            throw IllegalStateException("Baidu translation returned no result")
         }
         return TranslationResult(
             originalText = text,
@@ -100,7 +100,7 @@ class TranslationService(
         )
         val translations = json.optJSONArray("translations") ?: JSONArray()
         val result = translations.optJSONObject(0)
-            ?: throw IllegalStateException("DeepL 未返回结果")
+            ?: throw IllegalStateException("DeepL returned no result")
         return TranslationResult(
             originalText = text,
             translatedText = result.optString("text"),

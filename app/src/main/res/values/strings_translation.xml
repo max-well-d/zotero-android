@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="translation_settings_title">翻译</string>
-    <string name="translation_api">翻译服务</string>
-    <string name="translation_target_language">目标语言</string>
-    <string name="translation_show_original">显示原文</string>
+    <string name="translation_settings_title">Translation</string>
+    <string name="translation_api">Translation service</string>
+    <string name="translation_target_language">Target language</string>
+    <string name="translation_show_original">Show original text</string>
     <string name="translation_app_id">App ID</string>
-    <string name="translation_secret_key">Secret Key</string>
-    <string name="translation_api_key">API Key</string>
-    <string name="translation_test_connection">测试连接</string>
-    <string name="translation_testing">测试中…</string>
-    <string name="translation_save">保存</string>
-    <string name="translation_action">翻译</string>
-    <string name="translation_result">翻译结果</string>
-    <string name="translation_copy">复制</string>
-    <string name="translation_close">关闭</string>
-    <string name="translation_loading">正在翻译…</string>
-    <string name="translation_no_selected_text">未获取到选中文本</string>
-    <string name="translation_failed">翻译失败</string>
+    <string name="translation_secret_key">Secret key</string>
+    <string name="translation_api_key">API key</string>
+    <string name="translation_test_connection">Test connection</string>
+    <string name="translation_testing">Testing…</string>
+    <string name="translation_save">Save</string>
+    <string name="translation_action">Translate</string>
+    <string name="translation_result">Translation result</string>
+    <string name="translation_copy">Copy</string>
+    <string name="translation_close">Close</string>
+    <string name="translation_loading">Translating…</string>
+    <string name="translation_no_selected_text">No selected text found</string>
+    <string name="translation_failed">Translation failed</string>
 </resources>
