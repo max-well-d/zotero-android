@@ -608,7 +608,7 @@ class PdfReaderViewModel @Inject constructor(
 
     private fun attachSupportedContextualToolbarTranslationAction() {
         try {
-            val host = pdfUiFragment
+            val host = pdfUiFragment.activity as? AppCompatActivity ?: return
             val listenerMethod = host.javaClass.methods.firstOrNull {
                 it.name == "setOnContextualToolbarLifecycleListener" && it.parameterTypes.size == 1
             } ?: return
@@ -759,7 +759,7 @@ class PdfReaderViewModel @Inject constructor(
         }
     }
 
-    private fun setOnPreparePopupToolbarListener() {
+    private fun setupSupportedTextSelectionTranslationAction() {
         registerTranslatePopupToolbarListener()
         this.pdfFragment.setOnPreparePopupToolbarListener { toolbar ->
             val sourceItems = toolbar.menuItems.toMutableList()
@@ -2961,7 +2961,7 @@ class PdfReaderViewModel @Inject constructor(
                 this@PdfReaderViewModel.pdfFragment.addDrawableProvider(searchResultHighlighter)
                 addDocumentListener2()
                 addOnAnnotationCreationModeChangeListener()
-                setOnPreparePopupToolbarListener()
+                setupSupportedTextSelectionTranslationAction()
                 addDocumentScrollListener()
 //                updateVisibilityOfAnnotations()
 
