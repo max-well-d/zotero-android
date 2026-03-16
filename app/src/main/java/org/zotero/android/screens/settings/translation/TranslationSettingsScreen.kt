@@ -21,6 +21,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,7 +32,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.compose.runtime.collectAsState
 import org.zotero.android.R
 import org.zotero.android.screens.settings.elements.NewSettingsDivider
 import org.zotero.android.screens.settings.elements.NewSettingsItemWithDescription
@@ -49,6 +49,7 @@ internal fun TranslationSettingsScreen(
 ) {
     val settings by viewModel.settings.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
+    val languages = remember(settings.api) { TranslationLanguages.forApi(settings.api) }
     var showApiDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
 
@@ -92,7 +93,7 @@ internal fun TranslationSettingsScreen(
                     onItemTapped = { showApiDialog = true },
                 )
 
-                val selectedLanguage = TranslationLanguages.supported.firstOrNull {
+                val selectedLanguage = languages.firstOrNull {
                     it.code == settings.targetLanguage
                 }?.displayName ?: settings.targetLanguage
                 NewSettingsItemWithDescription(
@@ -177,7 +178,9 @@ internal fun TranslationSettingsScreen(
         if (showApiDialog) {
             SelectionDialog(
                 title = stringResource(id = R.string.translation_api),
-                items = TranslationApi.entries.map { it.displayName to { viewModel.updateApi(it) } },
+                items = TranslationApi.entries.map { api ->
+                    api.displayName to { viewModel.updateApi(api) }
+                },
                 onDismiss = { showApiDialog = false },
             )
         }
@@ -185,7 +188,7 @@ internal fun TranslationSettingsScreen(
         if (showLanguageDialog) {
             SelectionDialog(
                 title = stringResource(id = R.string.translation_target_language),
-                items = TranslationLanguages.supported.map { language ->
+                items = languages.map { language ->
                     language.displayName to { viewModel.updateTargetLanguage(language.code) }
                 },
                 onDismiss = { showLanguageDialog = false },

@@ -21,24 +21,53 @@ class TranslationService(
         sourceLanguage: String = "auto",
         targetLanguage: String? = null,
     ): Result<TranslationResult> = withContext(Dispatchers.IO) {
-        val settings = settingsRepository.getSettings()
-        val resolvedTarget = targetLanguage ?: settings.targetLanguage
-        if (text.isBlank()) {
+        val settings = settingsRepository.getSettings().normalized()
+        val resolvedTarget = targetLanguage?.trim().orEmpty().ifBlank { settings.targetLanguage }
+        val cleanedText = text.trim()
+        if (cleanedText.isBlank()) {
             return@withContext Result.failure(IllegalArgumentException("No text selected"))
         }
         if (!settings.hasValidCredentials()) {
             return@withContext Result.failure(IllegalStateException("Configure translation credentials in Settings first"))
         }
+        if (!TranslationLanguages.isSupported(settings.api, resolvedTarget)) {
+            return@withContext Result.failure(IllegalArgumentException("Unsupported target language for ${settings.api.displayName}"))
+        }
         runCatching {
             when (settings.api) {
-                TranslationApi.BAIDU -> translateWithBaidu(text, sourceLanguage, resolvedTarget, settings)
-                TranslationApi.DEEPL -> translateWithDeepL(text, sourceLanguage, resolvedTarget, settings)
+                TranslationApi.BAIDU -> translateWithBaidu(cleanedText, sourceLanguage, resolvedTarget, settings)
+                TranslationApi.DEEPL -> translateWithDeepL(cleanedText, sourceLanguage, resolvedTarget, settings)
             }
         }
     }
 
-    suspend fun testConnection(): Result<Unit> {
-        return translate(text = "Hello world").map { Unit }
+    suspend fun testConnection(candidateSettings: TranslationSettings? = null): Result<Unit> = withContext(Dispatchers.IO) {
+        val settings = (candidateSettings ?: settingsRepository.getSettings()).normalized()
+        if (!settings.hasValidCredentials()) {
+            return@withContext Result.failure(IllegalStateException("Configure translation credentials in Settings first"))
+        }
+        runCatching {
+            when (settings.api) {
+                TranslationApi.BAIDU -> {
+                    translateWithBaidu(
+                        text = "Hello world",
+                        sourceLanguage = "auto",
+                        targetLanguage = settings.targetLanguage,
+                        settings = settings,
+                    )
+                }
+
+                TranslationApi.DEEPL -> {
+                    translateWithDeepL(
+                        text = "Hello world",
+                        sourceLanguage = "auto",
+                        targetLanguage = settings.targetLanguage,
+                        settings = settings,
+                    )
+                }
+            }
+            Unit
+        }
     }
 
     private fun translateWithBaidu(
@@ -56,7 +85,7 @@ class TranslationService(
         )
         val params = linkedMapOf(
             "q" to text,
-            "from" to sourceLanguage,
+            "from" to normalizeBaiduLanguage(sourceLanguage),
             "to" to normalizeBaiduLanguage(targetLanguage),
             "appid" to settings.baiduAppId,
             "salt" to salt,
@@ -86,26 +115,31 @@ class TranslationService(
         targetLanguage: String,
         settings: TranslationSettings,
     ): TranslationResult {
+        val normalizedTarget = normalizeDeepLLanguage(targetLanguage)
         val params = linkedMapOf(
             "text" to text,
-            "target_lang" to normalizeDeepLLanguage(targetLanguage),
+            "target_lang" to normalizedTarget,
         )
         if (sourceLanguage.isNotBlank() && sourceLanguage != "auto") {
             params["source_lang"] = normalizeDeepLLanguage(sourceLanguage)
         }
         val json = postForm(
-            url = "https://api-free.deepl.com/v2/translate",
+            url = deepLBaseUrl(settings.apiKey),
             params = params,
             headers = mapOf("Authorization" to "DeepL-Auth-Key ${settings.apiKey}"),
         )
         val translations = json.optJSONArray("translations") ?: JSONArray()
         val result = translations.optJSONObject(0)
             ?: throw IllegalStateException("DeepL returned no result")
+        val translatedText = result.optString("text")
+        if (translatedText.isBlank()) {
+            throw IllegalStateException("DeepL returned empty text")
+        }
         return TranslationResult(
             originalText = text,
-            translatedText = result.optString("text"),
+            translatedText = translatedText,
             detectedSourceLang = result.optString("detected_source_language", sourceLanguage),
-            targetLanguage = normalizeDeepLLanguage(targetLanguage),
+            targetLanguage = normalizedTarget,
             api = TranslationApi.DEEPL,
         )
     }
@@ -145,10 +179,19 @@ class TranslationService(
         return JSONObject(responseText)
     }
 
+    private fun deepLBaseUrl(apiKey: String): String {
+        return if (apiKey.endsWith(":fx")) {
+            "https://api-free.deepl.com/v2/translate"
+        } else {
+            "https://api.deepl.com/v2/translate"
+        }
+    }
+
     private fun encode(value: String): String = URLEncoder.encode(value, Charsets.UTF_8.name())
 
     private fun normalizeBaiduLanguage(language: String): String {
         return when (language.lowercase()) {
+            "auto", "" -> "auto"
             "zh", "zh-cn", "zh_hans" -> "zh"
             else -> language.lowercase()
         }
@@ -157,6 +200,8 @@ class TranslationService(
     private fun normalizeDeepLLanguage(language: String): String {
         return when (language.lowercase()) {
             "zh", "zh-cn", "zh_hans" -> "ZH"
+            "pt-br" -> "PT-BR"
+            "pt-pt" -> "PT-PT"
             else -> language.uppercase()
         }
     }

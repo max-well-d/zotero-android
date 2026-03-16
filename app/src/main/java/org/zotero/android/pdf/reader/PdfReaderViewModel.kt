@@ -257,6 +257,9 @@ class PdfReaderViewModel @Inject constructor(
 
     private val translationService by lazy { translationEntryPoint.translationService() }
     private val translationSettingsRepository by lazy { translationEntryPoint.translationSettingsRepository() }
+    private var latestSelectedText: String = ""
+    private var textSelectionListenersOwnerHash: Int = 0
+    private var translatePopupMenuHandlesClickDirectly: Boolean = false
 
     private val translateMenuItemId: Int
         get() = org.zotero.android.R.id.pdf_translate_action
@@ -595,7 +598,7 @@ class PdfReaderViewModel @Inject constructor(
     }
 
     private fun setOnPreparePopupToolbarListener() {
-        registerTranslatePopupToolbarListener()
+        registerTextSelectionListenersIfNeeded()
         this.pdfFragment.setOnPreparePopupToolbarListener { toolbar ->
             val sourceItems = toolbar.menuItems.toMutableList()
             val menuItems = sourceItems.listIterator()
@@ -626,54 +629,185 @@ class PdfReaderViewModel @Inject constructor(
                 sourceItems.add(createTranslatePopupToolbarItem())
             }
             toolbar.menuItems = sourceItems
+            attachTranslatePopupToolbarClickListener(toolbar)
         }
     }
 
     private fun createTranslatePopupToolbarItem(): PopupToolbarMenuItem {
+        translatePopupMenuHandlesClickDirectly = false
+        val runnable = Runnable { onTranslateToolbarTapped() }
+        val title = context.getString(org.zotero.android.R.string.translation_action)
+        val constructors = PopupToolbarMenuItem::class.java.declaredConstructors.sortedByDescending { it.parameterTypes.size }
+
+        constructors.forEach { constructor ->
+            val parameterTypes = constructor.parameterTypes
+            val instance = runCatching {
+                when {
+                    parameterTypes.size == 3 &&
+                        parameterTypes[0] == Int::class.javaPrimitiveType &&
+                        parameterTypes[1] == Int::class.javaPrimitiveType &&
+                        Runnable::class.java.isAssignableFrom(parameterTypes[2]) -> {
+                        translatePopupMenuHandlesClickDirectly = true
+                        constructor.newInstance(translateMenuItemId, org.zotero.android.R.string.translation_action, runnable)
+                    }
+
+                    parameterTypes.size == 3 &&
+                        parameterTypes[0] == Int::class.javaPrimitiveType &&
+                        parameterTypes[1] == Int::class.javaPrimitiveType &&
+                        parameterTypes[2].name == "kotlin.jvm.functions.Function0" -> {
+                        translatePopupMenuHandlesClickDirectly = true
+                        constructor.newInstance(
+                            translateMenuItemId,
+                            org.zotero.android.R.string.translation_action,
+                            ({ onTranslateToolbarTapped() } as Function0<Unit>)
+                        )
+                    }
+
+                    parameterTypes.size == 3 &&
+                        parameterTypes[0] == Int::class.javaPrimitiveType &&
+                        CharSequence::class.java.isAssignableFrom(parameterTypes[1]) &&
+                        Runnable::class.java.isAssignableFrom(parameterTypes[2]) -> {
+                        translatePopupMenuHandlesClickDirectly = true
+                        constructor.newInstance(translateMenuItemId, title, runnable)
+                    }
+
+                    parameterTypes.size == 3 &&
+                        parameterTypes[0] == Int::class.javaPrimitiveType &&
+                        CharSequence::class.java.isAssignableFrom(parameterTypes[1]) &&
+                        parameterTypes[2].name == "kotlin.jvm.functions.Function0" -> {
+                        translatePopupMenuHandlesClickDirectly = true
+                        constructor.newInstance(
+                            translateMenuItemId,
+                            title,
+                            ({ onTranslateToolbarTapped() } as Function0<Unit>)
+                        )
+                    }
+
+                    parameterTypes.size == 2 &&
+                        parameterTypes[0] == Int::class.javaPrimitiveType &&
+                        parameterTypes[1] == Int::class.javaPrimitiveType -> {
+                        constructor.newInstance(translateMenuItemId, org.zotero.android.R.string.translation_action)
+                    }
+
+                    parameterTypes.size == 2 &&
+                        parameterTypes[0] == Int::class.javaPrimitiveType &&
+                        CharSequence::class.java.isAssignableFrom(parameterTypes[1]) -> {
+                        constructor.newInstance(translateMenuItemId, title)
+                    }
+
+                    else -> null
+                }
+            }.getOrNull()
+
+            if (instance is PopupToolbarMenuItem) {
+                return instance
+            }
+        }
+
         return PopupToolbarMenuItem(
             translateMenuItemId,
             org.zotero.android.R.string.translation_action
         )
     }
 
-    private fun registerTranslatePopupToolbarListener() {
+    private fun attachTranslatePopupToolbarClickListener(toolbar: Any) {
+        if (translatePopupMenuHandlesClickDirectly) {
+            return
+        }
 
-        try {
-            val listenerMethod = pdfFragment.javaClass.methods.firstOrNull { method ->
-                method.name.contains("PopupToolbar", ignoreCase = true) &&
-                    method.name.contains("Click", ignoreCase = true) &&
-                    method.parameterTypes.size == 1
-            } ?: return
+        val listenerMethod = toolbar.javaClass.methods.firstOrNull { method ->
+            method.parameterTypes.size == 1 &&
+                method.name.contains("MenuItemClick", ignoreCase = true)
+        } ?: return
 
-            val listenerType = listenerMethod.parameterTypes.firstOrNull() ?: return
-            val proxy = Proxy.newProxyInstance(
-                listenerType.classLoader,
-                arrayOf(listenerType)
-            ) { _, method, args ->
-                val menuItem = args?.firstOrNull()
-                val id = try {
-                    menuItem?.javaClass?.methods
-                        ?.firstOrNull { it.name == "getId" && it.parameterTypes.isEmpty() }
-                        ?.invoke(menuItem) as? Int
-                } catch (_: Throwable) {
-                    null
+        val listenerType = listenerMethod.parameterTypes.firstOrNull() ?: return
+        val proxy = Proxy.newProxyInstance(
+            listenerType.classLoader,
+            arrayOf(listenerType)
+        ) { _, method, args ->
+            val menuItem = args?.firstOrNull { candidate ->
+                candidate?.javaClass?.methods?.any { it.name == "getId" && it.parameterTypes.isEmpty() } == true
+            }
+            val id = runCatching {
+                menuItem?.javaClass?.methods
+                    ?.firstOrNull { it.name == "getId" && it.parameterTypes.isEmpty() }
+                    ?.invoke(menuItem) as? Int
+            }.getOrNull()
+
+            if (id == translateMenuItemId) {
+                onTranslateToolbarTapped()
+                when (method.returnType) {
+                    Boolean::class.javaPrimitiveType, Boolean::class.java -> true
+                    else -> Unit
                 }
-                if (id == translateMenuItemId) {
-                    onTranslateToolbarTapped()
-                    when (method.returnType) {
-                        Boolean::class.javaPrimitiveType, Boolean::class.java -> true
-                        else -> Unit
-                    }
-                } else {
-                    when (method.returnType) {
-                        Boolean::class.javaPrimitiveType, Boolean::class.java -> false
-                        else -> null
-                    }
+            } else {
+                when (method.returnType) {
+                    Boolean::class.javaPrimitiveType, Boolean::class.java -> false
+                    else -> null
                 }
             }
-            listenerMethod.invoke(pdfFragment, proxy)
-        } catch (_: Throwable) {
         }
+        runCatching { listenerMethod.invoke(toolbar, proxy) }
+    }
+
+    private fun registerTextSelectionListenersIfNeeded() {
+        val ownerHash = System.identityHashCode(pdfFragment)
+        if (textSelectionListenersOwnerHash == ownerHash) {
+            return
+        }
+        textSelectionListenersOwnerHash = ownerHash
+
+        registerTextSelectionChangeListener()
+        registerTextSelectionModeChangeListener()
+    }
+
+    private fun registerTextSelectionChangeListener() {
+        val method = pdfFragment.javaClass.methods.firstOrNull { candidate ->
+            candidate.parameterTypes.size == 1 && (
+                candidate.name == "addOnTextSelectionChangeListener" ||
+                    candidate.name == "registerTextSelectionChangeListener"
+                )
+        } ?: return
+
+        val listenerType = method.parameterTypes.firstOrNull() ?: return
+        val proxy = Proxy.newProxyInstance(
+            listenerType.classLoader,
+            arrayOf(listenerType)
+        ) { _, callbackMethod, args ->
+            if (callbackMethod.name.contains("TextSelection", ignoreCase = true)) {
+                val newSelection = args?.getOrNull(0)
+                val currentSelection = args?.getOrNull(1)
+                latestSelectedText = newSelection.extractSelectionText().orEmpty().ifBlank {
+                    currentSelection.extractSelectionText().orEmpty()
+                }
+            }
+            when (callbackMethod.returnType) {
+                Boolean::class.javaPrimitiveType, Boolean::class.java -> true
+                else -> null
+            }
+        }
+        runCatching { method.invoke(pdfFragment, proxy) }
+    }
+
+    private fun registerTextSelectionModeChangeListener() {
+        val method = pdfFragment.javaClass.methods.firstOrNull { candidate ->
+            candidate.parameterTypes.size == 1 && (
+                candidate.name == "addOnTextSelectionModeChangeListener" ||
+                    candidate.name == "registerTextSelectionModeChangeListener"
+                )
+        } ?: return
+
+        val listenerType = method.parameterTypes.firstOrNull() ?: return
+        val proxy = Proxy.newProxyInstance(
+            listenerType.classLoader,
+            arrayOf(listenerType)
+        ) { _, callbackMethod, _ ->
+            if (callbackMethod.name.contains("Exit", ignoreCase = true)) {
+                latestSelectedText = ""
+            }
+            null
+        }
+        runCatching { method.invoke(pdfFragment, proxy) }
     }
 
     private fun onTranslateToolbarTapped() {
@@ -728,27 +862,7 @@ class PdfReaderViewModel @Inject constructor(
     }
 
     private fun currentSelectedText(): String {
-        fun Any?.extractText(): String? {
-            return when (this) {
-                null -> null
-                is String -> this
-                is CharSequence -> this.toString()
-                else -> {
-                    val textMethod = this.javaClass.methods.firstOrNull { method ->
-                        method.parameterTypes.isEmpty() && (
-                            method.name == "getText" ||
-                                method.name == "text" ||
-                                method.name == "getSelectedText"
-                            )
-                    }
-                    try {
-                        textMethod?.invoke(this).extractText()
-                    } catch (_: Throwable) {
-                        null
-                    }
-                }
-            }
-        }
+        latestSelectedText.trim().takeIf { it.isNotBlank() }?.let { return it }
 
         val methodNames = listOf(
             "getSelectedText",
@@ -765,14 +879,37 @@ class PdfReaderViewModel @Inject constructor(
                 it.parameterTypes.isEmpty() && it.name == candidate
             }
             try {
-                val text = method?.invoke(pdfFragment).extractText()?.trim()
+                val text = method?.invoke(pdfFragment).extractSelectionText()?.trim()
                 if (!text.isNullOrBlank()) {
+                    latestSelectedText = text
                     return text
                 }
             } catch (_: Throwable) {
             }
         }
         return ""
+    }
+
+    private fun Any?.extractSelectionText(): String? {
+        return when (this) {
+            null -> null
+            is String -> this
+            is CharSequence -> this.toString()
+            else -> {
+                val textMethod = this.javaClass.methods.firstOrNull { method ->
+                    method.parameterTypes.isEmpty() && (
+                        method.name == "getText" ||
+                            method.name == "text" ||
+                            method.name == "getSelectedText"
+                        )
+                }
+                try {
+                    textMethod?.invoke(this).extractSelectionText()
+                } catch (_: Throwable) {
+                    null
+                }
+            }
+        }
     }
 
     private fun setColor(key: String, color: String) {

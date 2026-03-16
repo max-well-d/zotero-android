@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.zotero.android.translation.TranslationApi
+import org.zotero.android.translation.TranslationLanguages
 import org.zotero.android.translation.TranslationSettings
 import org.zotero.android.translation.TranslationSettingsRepository
 import org.zotero.android.translation.TranslationService
@@ -24,18 +25,26 @@ internal class TranslationSettingsViewModel @Inject constructor(
     private val translationService: TranslationService,
 ) : ViewModel() {
 
-    private val _settings = MutableStateFlow(repository.getSettings())
+    private val _settings = MutableStateFlow(repository.getSettings().normalized())
     val settings: StateFlow<TranslationSettings> = _settings.asStateFlow()
 
     private val _uiState = MutableStateFlow(TranslationSettingsUiState())
     val uiState: StateFlow<TranslationSettingsUiState> = _uiState.asStateFlow()
 
     fun updateApi(api: TranslationApi) {
-        _settings.value = _settings.value.copy(api = api)
+        val fallbackLanguage = _settings.value.targetLanguage.takeIf { TranslationLanguages.isSupported(api, it) }
+            ?: TranslationLanguages.defaultCodeFor(api)
+        _settings.value = _settings.value.copy(api = api, targetLanguage = fallbackLanguage).normalized()
     }
 
     fun updateTargetLanguage(targetLanguage: String) {
-        _settings.value = _settings.value.copy(targetLanguage = targetLanguage)
+        val api = _settings.value.api
+        val resolved = if (TranslationLanguages.isSupported(api, targetLanguage)) {
+            targetLanguage
+        } else {
+            TranslationLanguages.defaultCodeFor(api)
+        }
+        _settings.value = _settings.value.copy(targetLanguage = resolved)
     }
 
     fun updateShowOriginal(showOriginal: Boolean) {
@@ -55,19 +64,25 @@ internal class TranslationSettingsViewModel @Inject constructor(
     }
 
     fun save() {
-        repository.save(_settings.value)
+        val normalized = _settings.value.normalized()
+        _settings.value = normalized
+        repository.save(normalized)
         _uiState.value = _uiState.value.copy(statusMessage = "Translation settings saved")
     }
 
     fun testConnection() {
         viewModelScope.launch {
-            repository.save(_settings.value)
+            val candidate = _settings.value.normalized()
+            _settings.value = candidate
             _uiState.value = _uiState.value.copy(isTesting = true, statusMessage = null)
-            val message = translationService.testConnection()
-                .fold(
-                    onSuccess = { "Connection test succeeded" },
-                    onFailure = { it.message ?: "Connection test failed" },
-                )
+            val result = translationService.testConnection(candidate)
+            val message = result.fold(
+                onSuccess = {
+                    repository.save(candidate)
+                    "Connection test succeeded"
+                },
+                onFailure = { it.message ?: "Connection test failed" },
+            )
             _uiState.value = _uiState.value.copy(isTesting = false, statusMessage = message)
         }
     }

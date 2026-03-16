@@ -17,21 +17,34 @@ class TranslationSettingsRepository(
                 ?: TranslationApi.BAIDU,
             targetLanguage = prefs.getString(KEY_TARGET_LANGUAGE, "zh") ?: "zh",
             showOriginalText = prefs.getBoolean(KEY_SHOW_ORIGINAL, true),
-            baiduAppId = cipher.decrypt(prefs.getString(KEY_BAIDU_APP_ID, "") ?: ""),
-            baiduSecretKey = cipher.decrypt(prefs.getString(KEY_BAIDU_SECRET, "") ?: ""),
-            apiKey = cipher.decrypt(prefs.getString(KEY_API_KEY, "") ?: ""),
-        )
+            baiduAppId = decryptOrEmpty(KEY_BAIDU_APP_ID),
+            baiduSecretKey = decryptOrEmpty(KEY_BAIDU_SECRET),
+            apiKey = decryptOrEmpty(KEY_API_KEY),
+        ).normalized()
     }
 
     fun save(settings: TranslationSettings) {
+        val normalized = settings.normalized()
         prefs.edit()
-            .putString(KEY_API, settings.api.name)
-            .putString(KEY_TARGET_LANGUAGE, settings.targetLanguage)
-            .putBoolean(KEY_SHOW_ORIGINAL, settings.showOriginalText)
-            .putString(KEY_BAIDU_APP_ID, cipher.encrypt(settings.baiduAppId.trim()))
-            .putString(KEY_BAIDU_SECRET, cipher.encrypt(settings.baiduSecretKey.trim()))
-            .putString(KEY_API_KEY, cipher.encrypt(settings.apiKey.trim()))
+            .putString(KEY_API, normalized.api.name)
+            .putString(KEY_TARGET_LANGUAGE, normalized.targetLanguage)
+            .putBoolean(KEY_SHOW_ORIGINAL, normalized.showOriginalText)
+            .putString(KEY_BAIDU_APP_ID, cipher.encrypt(normalized.baiduAppId))
+            .putString(KEY_BAIDU_SECRET, cipher.encrypt(normalized.baiduSecretKey))
+            .putString(KEY_API_KEY, cipher.encrypt(normalized.apiKey))
             .apply()
+    }
+
+    private fun decryptOrEmpty(key: String): String {
+        val stored = prefs.getString(key, "").orEmpty()
+        if (stored.isBlank()) {
+            return ""
+        }
+        return runCatching { cipher.decrypt(stored) }
+            .getOrElse {
+                prefs.edit().remove(key).apply()
+                ""
+            }
     }
 
     private companion object {

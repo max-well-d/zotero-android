@@ -14,6 +14,19 @@ data class TranslationSettings(
             TranslationApi.DEEPL -> apiKey.isNotBlank()
         }
     }
+
+    fun normalized(): TranslationSettings {
+        val supportedCodes = TranslationLanguages.codesFor(api)
+        val normalizedTarget = targetLanguage.ifBlank { TranslationLanguages.defaultCodeFor(api) }
+            .let { code -> if (code in supportedCodes) code else TranslationLanguages.defaultCodeFor(api) }
+
+        return copy(
+            targetLanguage = normalizedTarget,
+            baiduAppId = baiduAppId.trim(),
+            baiduSecretKey = baiduSecretKey.trim(),
+            apiKey = apiKey.trim(),
+        )
+    }
 }
 
 data class TranslationResult(
@@ -30,12 +43,43 @@ data class TranslationLanguage(
 )
 
 object TranslationLanguages {
-    val supported = listOf(
+    private val baidu = listOf(
         TranslationLanguage(code = "zh", displayName = "简体中文"),
         TranslationLanguage(code = "en", displayName = "English"),
         TranslationLanguage(code = "ja", displayName = "日本語"),
         TranslationLanguage(code = "ko", displayName = "한국어"),
         TranslationLanguage(code = "fr", displayName = "Français"),
         TranslationLanguage(code = "de", displayName = "Deutsch"),
+        TranslationLanguage(code = "es", displayName = "Español"),
+        TranslationLanguage(code = "ru", displayName = "Русский"),
     )
+
+    private val deepl = listOf(
+        TranslationLanguage(code = "zh", displayName = "简体中文"),
+        TranslationLanguage(code = "en", displayName = "English"),
+        TranslationLanguage(code = "ja", displayName = "日本語"),
+        TranslationLanguage(code = "ko", displayName = "한국어"),
+        TranslationLanguage(code = "fr", displayName = "Français"),
+        TranslationLanguage(code = "de", displayName = "Deutsch"),
+        TranslationLanguage(code = "es", displayName = "Español"),
+        TranslationLanguage(code = "pt", displayName = "Português"),
+        TranslationLanguage(code = "it", displayName = "Italiano"),
+        TranslationLanguage(code = "ru", displayName = "Русский"),
+    )
+
+    val supported: List<TranslationLanguage>
+        get() = forApi(TranslationApi.BAIDU)
+
+    fun forApi(api: TranslationApi): List<TranslationLanguage> {
+        return when (api) {
+            TranslationApi.BAIDU -> baidu
+            TranslationApi.DEEPL -> deepl
+        }
+    }
+
+    fun codesFor(api: TranslationApi): Set<String> = forApi(api).mapTo(linkedSetOf()) { it.code }
+
+    fun defaultCodeFor(api: TranslationApi): String = forApi(api).firstOrNull()?.code ?: "zh"
+
+    fun isSupported(api: TranslationApi, code: String): Boolean = code in codesFor(api)
 }
