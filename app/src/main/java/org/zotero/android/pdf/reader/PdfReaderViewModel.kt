@@ -185,7 +185,6 @@ import org.zotero.android.sync.LibraryIdentifier
 import org.zotero.android.sync.SchemaController
 import org.zotero.android.sync.SessionDataEventStream
 import org.zotero.android.sync.Tag
-import org.zotero.android.uicomponents.Strings
 import timber.log.Timber
 import java.io.File
 import java.lang.reflect.Proxy
@@ -621,7 +620,7 @@ class PdfReaderViewModel @Inject constructor(
             if (textHighlightItemIndex >= 0) {
                 sourceItems[textHighlightItemIndex] = PopupToolbarMenuItem(
                     R.id.pspdf__text_selection_toolbar_item_highlight,
-                    context.getString(Strings.pdf_highlight)
+                    org.zotero.android.R.string.pdf_highlight
                 )
             }
             if (sourceItems.none { it.id == ZOTERO_TRANSLATE_MENU_ITEM_ID }) {
