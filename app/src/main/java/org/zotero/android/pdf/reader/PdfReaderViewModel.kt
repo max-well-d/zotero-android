@@ -187,6 +187,7 @@ import org.zotero.android.sync.SessionDataEventStream
 import org.zotero.android.sync.Tag
 import timber.log.Timber
 import java.io.File
+import java.lang.reflect.Method
 import java.lang.reflect.Proxy
 import java.nio.charset.StandardCharsets
 import java.util.EnumSet
@@ -483,7 +484,8 @@ class PdfReaderViewModel @Inject constructor(
                 .build()
             this@PdfReaderViewModel.pdfUiFragment.lifecycle.addObserver(object: DefaultLifecycleObserver {
                 override fun onStart(owner: LifecycleOwner) {
-                    this@PdfReaderViewModel.pdfFragment = pdfUiFragment.pdfFragment!!
+                    val currentPdfFragment = pdfUiFragment.pdfFragment ?: return
+                    this@PdfReaderViewModel.pdfFragment = currentPdfFragment
                     this@PdfReaderViewModel.pdfFragment.addDrawableProvider(searchResultHighlighter)
                     addDocumentListenerOnInit()
                     addOnAnnotationCreationModeChangeListener()
@@ -710,6 +712,41 @@ class PdfReaderViewModel @Inject constructor(
         )
     }
 
+    private fun createSafeListenerProxy(
+        listenerType: Class<*>,
+        onInvoke: (method: Method, args: Array<out Any?>?) -> Any?
+    ): Any {
+        return Proxy.newProxyInstance(
+            listenerType.classLoader,
+            arrayOf(listenerType)
+        ) { proxy, method, args ->
+            when (method.name) {
+                "equals" -> proxy === args?.getOrNull(0)
+                "hashCode" -> System.identityHashCode(proxy)
+                "toString" -> "ZoteroTranslationProxy(${listenerType.name})"
+                else -> {
+                    val result = onInvoke(method, args)
+                    if (result != null) {
+                        result
+                    } else {
+                        when (method.returnType) {
+                            java.lang.Boolean.TYPE, java.lang.Boolean::class.java -> false
+                            java.lang.Integer.TYPE, java.lang.Integer::class.java -> 0
+                            java.lang.Long.TYPE, java.lang.Long::class.java -> 0L
+                            java.lang.Float.TYPE, java.lang.Float::class.java -> 0f
+                            java.lang.Double.TYPE, java.lang.Double::class.java -> 0.0
+                            java.lang.Short.TYPE, java.lang.Short::class.java -> 0.toShort()
+                            java.lang.Byte.TYPE, java.lang.Byte::class.java -> 0.toByte()
+                            java.lang.Character.TYPE, java.lang.Character::class.java -> 0.toChar()
+                            Void.TYPE -> Unit
+                            else -> null
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private fun attachTranslatePopupToolbarClickListener(toolbar: Any) {
         if (translatePopupMenuHandlesClickDirectly) {
             return
@@ -726,10 +763,7 @@ class PdfReaderViewModel @Inject constructor(
         }
 
         val proxy = runCatching {
-            Proxy.newProxyInstance(
-                listenerType.classLoader,
-                arrayOf(listenerType)
-            ) { _, method, args ->
+            createSafeListenerProxy(listenerType) { method, args ->
                 val menuItem = args?.firstOrNull { candidate ->
                     candidate?.javaClass?.methods?.any { it.name == "getId" && it.parameterTypes.isEmpty() } == true
                 }
@@ -782,10 +816,7 @@ class PdfReaderViewModel @Inject constructor(
         }
 
         val proxy = runCatching {
-            Proxy.newProxyInstance(
-                listenerType.classLoader,
-                arrayOf(listenerType)
-            ) { _, callbackMethod, args ->
+            createSafeListenerProxy(listenerType) { callbackMethod, args ->
                 if (callbackMethod.name.contains("TextSelection", ignoreCase = true)) {
                     val newSelection = args?.getOrNull(0)
                     val currentSelection = args?.getOrNull(1)
@@ -817,10 +848,7 @@ class PdfReaderViewModel @Inject constructor(
         }
 
         val proxy = runCatching {
-            Proxy.newProxyInstance(
-                listenerType.classLoader,
-                arrayOf(listenerType)
-            ) { _, callbackMethod, _ ->
+            createSafeListenerProxy(listenerType) { callbackMethod, _ ->
                 if (callbackMethod.name.contains("Exit", ignoreCase = true)) {
                     latestSelectedText = ""
                 }
@@ -2851,7 +2879,8 @@ class PdfReaderViewModel @Inject constructor(
 
         this@PdfReaderViewModel.pdfUiFragment.lifecycle.addObserver(object: DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
-                this@PdfReaderViewModel.pdfFragment = pdfUiFragment.pdfFragment!!
+                val currentPdfFragment = pdfUiFragment.pdfFragment ?: return
+                this@PdfReaderViewModel.pdfFragment = currentPdfFragment
                 this@PdfReaderViewModel.pdfFragment.addDrawableProvider(searchResultHighlighter)
                 addDocumentListener2()
                 addOnAnnotationCreationModeChangeListener()
