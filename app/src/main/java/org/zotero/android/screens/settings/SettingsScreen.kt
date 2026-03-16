@@ -28,6 +28,7 @@ internal fun SettingsScreen(
     toDebugScreen: () -> Unit,
     toCiteScreen: () -> Unit,
     toQuickCopyScreen: () -> Unit,
+    toTranslationSettingsScreen: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     AppThemeM3 {
@@ -78,6 +79,10 @@ internal fun SettingsScreen(
                 NewSettingsItem(
                     title = stringResource(id = Strings.settings_debug),
                     onItemTapped = toDebugScreen,
+                )
+                NewSettingsItem(
+                    title = stringResource(id = org.zotero.android.R.string.translation_settings_title),
+                    onItemTapped = toTranslationSettingsScreen,
                 )
 
                 NewSettingsDivider()

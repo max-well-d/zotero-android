@@ -18,6 +18,7 @@ import org.zotero.android.screens.settings.debug.SettingsDebugLogScreen
 import org.zotero.android.screens.settings.debug.SettingsDebugScreen
 import org.zotero.android.screens.settings.quickcopy.SettingsQuickCopyScreen
 import org.zotero.android.screens.settings.stylepicker.SettingsStylePickerScreen
+import org.zotero.android.screens.settings.translation.TranslationSettingsScreen
 import org.zotero.android.uicomponents.navigation.ZoteroNavHost
 import org.zotero.android.uicomponents.singlepicker.SinglePickerScreen
 
@@ -49,6 +50,7 @@ internal fun NavGraphBuilder.settingsNavScreens(
         toDebugScreen = navigation::toDebugScreen,
         toCiteScreen = navigation::toCiteScreen,
         toQuickCopyScreen = navigation::toQuickCopyScreen,
+        toTranslationSettingsScreen = navigation::toTranslationSettingsScreen,
     )
     accountScreen(
         onBack = navigation::onBack,
@@ -74,6 +76,7 @@ internal fun NavGraphBuilder.settingsNavScreens(
     stylePickerScreen(
         onBack = navigation::onBack,
     )
+    translationSettingsScreen(onBack = navigation::onBack)
     debugLogScreen(onBack = navigation::onBack)
     singlePickerScreen(onBack = navigation::onBack)
     cslLocalePickerScreen(onBack = navigation::onBack)
@@ -85,6 +88,7 @@ fun NavGraphBuilder.settingsScreen(
     toDebugScreen: () -> Unit,
     toCiteScreen: () -> Unit,
     toQuickCopyScreen: () -> Unit,
+    toTranslationSettingsScreen: () -> Unit,
     onBack: () -> Unit,
 ) {
     composable(
@@ -97,6 +101,7 @@ fun NavGraphBuilder.settingsScreen(
             toDebugScreen = toDebugScreen,
             toCiteScreen = toCiteScreen,
             toQuickCopyScreen = toQuickCopyScreen,
+            toTranslationSettingsScreen = toTranslationSettingsScreen,
         )
     }
 }
@@ -219,8 +224,19 @@ private fun NavGraphBuilder.cslLocalePickerScreen(
     }
 }
 
+private fun NavGraphBuilder.translationSettingsScreen(
+    onBack: () -> Unit,
+) {
+    composable(
+        route = SettingsDestinations.TRANSLATION,
+    ) {
+        TranslationSettingsScreen(onBack = onBack)
+    }
+}
+
 private object SettingsDestinations {
     const val SETTINGS = "settings"
+    const val TRANSLATION = "translation"
     const val ACCOUNT = "account"
     const val DEBUG = "debug"
     const val DEBUG_LOG = "debugLog"
@@ -258,6 +274,10 @@ fun ZoteroNavigation.toStylePicker() {
 
 fun ZoteroNavigation.toQuickCopyScreen() {
     navController.navigate(SettingsDestinations.QUICK_COPY)
+}
+
+fun ZoteroNavigation.toTranslationSettingsScreen() {
+    navController.navigate(SettingsDestinations.TRANSLATION)
 }
 
 fun ZoteroNavigation.toDebugLogScreen() {

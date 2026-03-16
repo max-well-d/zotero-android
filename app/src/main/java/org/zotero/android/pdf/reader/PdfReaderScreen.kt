@@ -241,6 +241,7 @@ internal fun PdfReaderScreen(
         PdfAnnotationMoreNavigationView(viewState = viewState, viewModel = viewModel)
         PdfSettingsView(viewState = viewState, viewModel = viewModel)
         PdfCopyCitationView(viewState = viewState, viewModel = viewModel)
+        PdfTranslationResultDialog(viewState = viewState, viewModel = viewModel)
     }
 
 }

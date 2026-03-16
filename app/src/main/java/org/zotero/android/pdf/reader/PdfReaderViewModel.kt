@@ -58,6 +58,7 @@ import com.pspdfkit.ui.special_mode.controller.AnnotationSelectionController
 import com.pspdfkit.ui.special_mode.controller.AnnotationTool
 import com.pspdfkit.ui.special_mode.manager.AnnotationManager
 import com.pspdfkit.ui.toolbar.popup.PopupToolbarMenuItem
+import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.realm.OrderedCollectionChangeSet
 import io.realm.RealmResults
@@ -187,6 +188,7 @@ import org.zotero.android.sync.Tag
 import org.zotero.android.uicomponents.Strings
 import timber.log.Timber
 import java.io.File
+import java.lang.reflect.Proxy
 import java.nio.charset.StandardCharsets
 import java.util.EnumSet
 import java.util.Timer
@@ -194,6 +196,8 @@ import javax.inject.Inject
 import javax.inject.Provider
 import kotlin.concurrent.timerTask
 import kotlin.random.Random
+import org.zotero.android.translation.TranslationApi
+import org.zotero.android.translation.TranslationEntryPoint
 
 @HiltViewModel
 class PdfReaderViewModel @Inject constructor(
@@ -244,6 +248,20 @@ class PdfReaderViewModel @Inject constructor(
     private var backgroundColor: androidx.compose.ui.graphics.Color? = null
 
     private val handler = Handler(context.mainLooper)
+
+    private val translationEntryPoint by lazy {
+        EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            TranslationEntryPoint::class.java
+        )
+    }
+
+    private val translationService by lazy { translationEntryPoint.translationService() }
+    private val translationSettingsRepository by lazy { translationEntryPoint.translationSettingsRepository() }
+
+    companion object {
+        private const val ZOTERO_TRANSLATE_MENU_ITEM_ID = 0x7f0f7a11
+    }
 
     override var annotationMaxSideSize = 0
 
@@ -579,6 +597,7 @@ class PdfReaderViewModel @Inject constructor(
     }
 
     private fun setOnPreparePopupToolbarListener() {
+        registerTranslatePopupToolbarListener()
         this.pdfFragment.setOnPreparePopupToolbarListener { toolbar ->
             val sourceItems = toolbar.menuItems.toMutableList()
             val menuItems = sourceItems.listIterator()
@@ -599,12 +618,219 @@ class PdfReaderViewModel @Inject constructor(
             }
             val textHighlightItemIndex =
                 sourceItems.indexOfFirst { it.id == R.id.pspdf__text_selection_toolbar_item_highlight }
-            sourceItems[textHighlightItemIndex] = PopupToolbarMenuItem(
-                R.id.pspdf__text_selection_toolbar_item_highlight,
-                Strings.pdf_highlight
-            )
+            if (textHighlightItemIndex >= 0) {
+                sourceItems[textHighlightItemIndex] = PopupToolbarMenuItem(
+                    R.id.pspdf__text_selection_toolbar_item_highlight,
+                    Strings.pdf_highlight
+                )
+            }
+            if (sourceItems.none { it.id == ZOTERO_TRANSLATE_MENU_ITEM_ID }) {
+                createTranslatePopupToolbarItem()?.let(sourceItems::add)
+            }
             toolbar.menuItems = sourceItems
         }
+    }
+
+    private fun createTranslatePopupToolbarItem(): PopupToolbarMenuItem? {
+        val title = context.getString(org.zotero.android.R.string.translation_action)
+        val constructors = PopupToolbarMenuItem::class.java.constructors
+        constructors.forEach { constructor ->
+            val params = constructor.parameterTypes
+            try {
+                when {
+                    params.size == 3 &&
+                        params[0] == Int::class.javaPrimitiveType &&
+                        CharSequence::class.java.isAssignableFrom(params[1]) &&
+                        params[2].name == "kotlin.jvm.functions.Function0" -> {
+                        return constructor.newInstance(
+                            ZOTERO_TRANSLATE_MENU_ITEM_ID,
+                            title,
+                            object : kotlin.jvm.functions.Function0<Unit> {
+                                override fun invoke() {
+                                    onTranslateToolbarTapped()
+                                }
+                            }
+                        ) as PopupToolbarMenuItem
+                    }
+
+                    params.size == 4 &&
+                        params[0] == Int::class.javaPrimitiveType &&
+                        CharSequence::class.java.isAssignableFrom(params[1]) &&
+                        params[3].name == "kotlin.jvm.functions.Function0" -> {
+                        return constructor.newInstance(
+                            ZOTERO_TRANSLATE_MENU_ITEM_ID,
+                            title,
+                            0,
+                            object : kotlin.jvm.functions.Function0<Unit> {
+                                override fun invoke() {
+                                    onTranslateToolbarTapped()
+                                }
+                            }
+                        ) as PopupToolbarMenuItem
+                    }
+
+                    params.size == 3 &&
+                        params[0] == Int::class.javaPrimitiveType &&
+                        CharSequence::class.java.isAssignableFrom(params[1]) &&
+                        params[2] == Runnable::class.java -> {
+                        return constructor.newInstance(
+                            ZOTERO_TRANSLATE_MENU_ITEM_ID,
+                            title,
+                            Runnable { onTranslateToolbarTapped() }
+                        ) as PopupToolbarMenuItem
+                    }
+
+                    params.size == 2 &&
+                        params[0] == Int::class.javaPrimitiveType &&
+                        CharSequence::class.java.isAssignableFrom(params[1]) -> {
+                        return constructor.newInstance(
+                            ZOTERO_TRANSLATE_MENU_ITEM_ID,
+                            title
+                        ) as PopupToolbarMenuItem
+                    }
+                }
+            } catch (_: Throwable) {
+            }
+        }
+        return null
+    }
+
+    private fun registerTranslatePopupToolbarListener() {
+        try {
+            val listenerMethod = pdfFragment.javaClass.methods.firstOrNull { method ->
+                method.name.contains("PopupToolbar", ignoreCase = true) &&
+                    method.name.contains("Click", ignoreCase = true) &&
+                    method.parameterTypes.size == 1
+            } ?: return
+
+            val listenerType = listenerMethod.parameterTypes.firstOrNull() ?: return
+            val proxy = Proxy.newProxyInstance(
+                listenerType.classLoader,
+                arrayOf(listenerType)
+            ) { _, method, args ->
+                val menuItem = args?.firstOrNull()
+                val id = try {
+                    menuItem?.javaClass?.methods
+                        ?.firstOrNull { it.name == "getId" && it.parameterTypes.isEmpty() }
+                        ?.invoke(menuItem) as? Int
+                } catch (_: Throwable) {
+                    null
+                }
+                if (id == ZOTERO_TRANSLATE_MENU_ITEM_ID) {
+                    onTranslateToolbarTapped()
+                    when (method.returnType) {
+                        Boolean::class.javaPrimitiveType, Boolean::class.java -> true
+                        else -> Unit
+                    }
+                } else {
+                    when (method.returnType) {
+                        Boolean::class.javaPrimitiveType, Boolean::class.java -> false
+                        else -> null
+                    }
+                }
+            }
+            listenerMethod.invoke(pdfFragment, proxy)
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun onTranslateToolbarTapped() {
+        val selectedText = currentSelectedText()
+        if (selectedText.isBlank()) {
+            context.longToast(context.getString(org.zotero.android.R.string.translation_no_selected_text))
+            return
+        }
+
+        updateState {
+            copy(
+                isTranslationLoading = true,
+                translationDialogState = null,
+            )
+        }
+
+        viewModelScope.launch {
+            val showOriginal = translationSettingsRepository.getSettings().showOriginalText
+            translationService.translate(selectedText.trim())
+                .onSuccess { result ->
+                    updateState {
+                        copy(
+                            isTranslationLoading = false,
+                            translationDialogState = PdfReaderTranslationDialogState(
+                                originalText = result.originalText,
+                                translatedText = result.translatedText,
+                                apiName = result.api.displayName,
+                                showOriginalText = showOriginal,
+                            )
+                        )
+                    }
+                }
+                .onFailure { throwable ->
+                    updateState {
+                        copy(isTranslationLoading = false)
+                    }
+                    context.longToast(
+                        throwable.message
+                            ?: context.getString(org.zotero.android.R.string.translation_failed)
+                    )
+                }
+        }
+    }
+
+    fun dismissTranslationDialog() {
+        updateState {
+            copy(
+                isTranslationLoading = false,
+                translationDialogState = null,
+            )
+        }
+    }
+
+    private fun currentSelectedText(): String {
+        fun Any?.extractText(): String? {
+            return when (this) {
+                null -> null
+                is String -> this
+                is CharSequence -> this.toString()
+                else -> {
+                    val textMethod = this.javaClass.methods.firstOrNull { method ->
+                        method.parameterTypes.isEmpty() && (
+                            method.name == "getText" ||
+                                method.name == "text" ||
+                                method.name == "getSelectedText"
+                            )
+                    }
+                    try {
+                        textMethod?.invoke(this).extractText()
+                    } catch (_: Throwable) {
+                        null
+                    }
+                }
+            }
+        }
+
+        val methodNames = listOf(
+            "getSelectedText",
+            "selectedText",
+            "getTextSelection",
+            "textSelection",
+            "getTextSelectionManager",
+            "textSelectionManager",
+            "getSelection",
+            "selection",
+        )
+        methodNames.forEach { candidate ->
+            val method = pdfFragment.javaClass.methods.firstOrNull {
+                it.parameterTypes.isEmpty() && it.name == candidate
+            }
+            try {
+                val text = method?.invoke(pdfFragment).extractText()?.trim()
+                if (!text.isNullOrBlank()) {
+                    return text
+                }
+            } catch (_: Throwable) {
+            }
+        }
+        return ""
     }
 
     private fun setColor(key: String, color: String) {
@@ -3653,6 +3879,13 @@ class PdfReaderViewModel @Inject constructor(
     }
 }
 
+data class PdfReaderTranslationDialogState(
+    val originalText: String,
+    val translatedText: String,
+    val apiName: String,
+    val showOriginalText: Boolean,
+)
+
 data class PdfReaderViewState(
     val key: String = "",
     val parentKey: String? = null,
@@ -3699,6 +3932,8 @@ data class PdfReaderViewState(
     val showSingleCitationScreen: Boolean = false,
     val isGeneratingBibliography: Boolean = false,
     val isExportingAnnotatedPdf: Boolean = false,
+    val isTranslationLoading: Boolean = false,
+    val translationDialogState: PdfReaderTranslationDialogState? = null,
 ) : ViewState {
 
     fun isAnnotationSelected(annotationKey: String): Boolean {
