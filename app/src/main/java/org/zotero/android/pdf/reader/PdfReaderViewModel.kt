@@ -187,7 +187,6 @@ import org.zotero.android.sync.SessionDataEventStream
 import org.zotero.android.sync.Tag
 import timber.log.Timber
 import java.io.File
-import java.lang.reflect.Proxy
 import java.nio.charset.StandardCharsets
 import java.util.EnumSet
 import java.util.Timer
@@ -597,7 +596,6 @@ class PdfReaderViewModel @Inject constructor(
     }
 
     private fun setOnPreparePopupToolbarListener() {
-        registerTranslatePopupToolbarListener()
         this.pdfFragment.setOnPreparePopupToolbarListener { toolbar ->
             val sourceItems = toolbar.menuItems.toMutableList()
             val menuItems = sourceItems.listIterator()
@@ -679,22 +677,11 @@ class PdfReaderViewModel @Inject constructor(
                     constructor.newInstance(ZOTERO_TRANSLATE_MENU_ITEM_ID, titleText, Runnable { onTranslateToolbarTapped() }) as PopupToolbarMenuItem
                 } else null
             },
-            { constructor ->
-                val p = constructor.parameterTypes
-                if (p.size == 2 && p[0] == Int::class.javaPrimitiveType && p[1] == Int::class.javaPrimitiveType) {
-                    constructor.newInstance(ZOTERO_TRANSLATE_MENU_ITEM_ID, titleResId) as PopupToolbarMenuItem
-                } else null
-            },
-            { constructor ->
-                val p = constructor.parameterTypes
-                if (p.size == 2 && p[0] == Int::class.javaPrimitiveType && CharSequence::class.java.isAssignableFrom(p[1])) {
-                    constructor.newInstance(ZOTERO_TRANSLATE_MENU_ITEM_ID, titleText) as PopupToolbarMenuItem
-                } else null
-            },
         )
 
-        constructors.forEach { constructor ->
-            callbackFactories.forEach { factory ->
+        // 只接受带回调的构造器；如果当前 SDK 没有可用回调构造器，则不要显示“翻译”按钮。
+        callbackFactories.forEach { factory ->
+            constructors.forEach { constructor ->
                 try {
                     factory(constructor)?.let { return it }
                 } catch (_: Throwable) {
@@ -702,79 +689,6 @@ class PdfReaderViewModel @Inject constructor(
             }
         }
         return null
-    }
-
-    private fun defaultProxyReturn(method: java.lang.reflect.Method, proxy: Any, args: Array<out Any?>?): Any? {
-        return when (method.name) {
-            "equals" -> proxy === args?.getOrNull(0)
-            "hashCode" -> System.identityHashCode(proxy)
-            "toString" -> "ZoteroTranslationProxy(${method.declaringClass.name})"
-            else -> when (method.returnType) {
-                Boolean::class.javaPrimitiveType, Boolean::class.java -> false
-                Int::class.javaPrimitiveType, Int::class.java -> 0
-                Long::class.javaPrimitiveType, Long::class.java -> 0L
-                Float::class.javaPrimitiveType, Float::class.java -> 0f
-                Double::class.javaPrimitiveType, Double::class.java -> 0.0
-                Void.TYPE -> Unit
-                else -> null
-            }
-        }
-    }
-
-    private fun extractMenuItemId(args: Array<out Any?>?): Int? {
-        args?.forEach { candidate ->
-            try {
-                val id = candidate?.javaClass?.methods
-                    ?.firstOrNull { it.name == "getId" && it.parameterTypes.isEmpty() }
-                    ?.invoke(candidate) as? Int
-                if (id != null) {
-                    return id
-                }
-            } catch (_: Throwable) {
-            }
-        }
-        return null
-    }
-
-    private fun registerTranslatePopupToolbarListener() {
-        try {
-            val listenerMethod = pdfFragment.javaClass.methods.firstOrNull { method ->
-                method.parameterTypes.size == 1 &&
-                    method.name.contains("popup", ignoreCase = true) &&
-                    (
-                        method.name.contains("menu", ignoreCase = true) ||
-                            method.name.contains("item", ignoreCase = true) ||
-                            method.name.contains("click", ignoreCase = true) ||
-                            method.name.contains("select", ignoreCase = true)
-                        )
-            } ?: return
-
-            val listenerType = listenerMethod.parameterTypes.firstOrNull() ?: return
-            if (!listenerType.isInterface) return
-
-            val proxy = Proxy.newProxyInstance(
-                listenerType.classLoader,
-                arrayOf(listenerType)
-            ) { proxy, method, args ->
-                when (method.name) {
-                    "equals", "hashCode", "toString" -> defaultProxyReturn(method, proxy, args)
-                    else -> {
-                        val id = extractMenuItemId(args)
-                        if (id == ZOTERO_TRANSLATE_MENU_ITEM_ID) {
-                            onTranslateToolbarTapped()
-                            when (method.returnType) {
-                                Boolean::class.javaPrimitiveType, Boolean::class.java -> true
-                                else -> Unit
-                            }
-                        } else {
-                            defaultProxyReturn(method, proxy, args)
-                        }
-                    }
-                }
-            }
-            listenerMethod.invoke(pdfFragment, proxy)
-        } catch (_: Throwable) {
-        }
     }
 
     private fun onTranslateToolbarTapped() {
