@@ -721,32 +721,39 @@ class PdfReaderViewModel @Inject constructor(
         } ?: return
 
         val listenerType = listenerMethod.parameterTypes.firstOrNull() ?: return
-        val proxy = Proxy.newProxyInstance(
-            listenerType.classLoader,
-            arrayOf(listenerType)
-        ) { _, method, args ->
-            val menuItem = args?.firstOrNull { candidate ->
-                candidate?.javaClass?.methods?.any { it.name == "getId" && it.parameterTypes.isEmpty() } == true
-            }
-            val id = runCatching {
-                menuItem?.javaClass?.methods
-                    ?.firstOrNull { it.name == "getId" && it.parameterTypes.isEmpty() }
-                    ?.invoke(menuItem) as? Int
-            }.getOrNull()
-
-            if (id == translateMenuItemId) {
-                onTranslateToolbarTapped()
-                when (method.returnType) {
-                    Boolean::class.javaPrimitiveType, Boolean::class.java -> true
-                    else -> Unit
-                }
-            } else {
-                when (method.returnType) {
-                    Boolean::class.javaPrimitiveType, Boolean::class.java -> false
-                    else -> null
-                }
-            }
+        if (!listenerType.isInterface) {
+            return
         }
+
+        val proxy = runCatching {
+            Proxy.newProxyInstance(
+                listenerType.classLoader,
+                arrayOf(listenerType)
+            ) { _, method, args ->
+                val menuItem = args?.firstOrNull { candidate ->
+                    candidate?.javaClass?.methods?.any { it.name == "getId" && it.parameterTypes.isEmpty() } == true
+                }
+                val id = runCatching {
+                    menuItem?.javaClass?.methods
+                        ?.firstOrNull { it.name == "getId" && it.parameterTypes.isEmpty() }
+                        ?.invoke(menuItem) as? Int
+                }.getOrNull()
+
+                if (id == translateMenuItemId) {
+                    onTranslateToolbarTapped()
+                    when (method.returnType) {
+                        Boolean::class.javaPrimitiveType, Boolean::class.java -> true
+                        else -> Unit
+                    }
+                } else {
+                    when (method.returnType) {
+                        Boolean::class.javaPrimitiveType, Boolean::class.java -> false
+                        else -> null
+                    }
+                }
+            }
+        }.getOrNull() ?: return
+
         runCatching { listenerMethod.invoke(toolbar, proxy) }
     }
 
@@ -770,22 +777,29 @@ class PdfReaderViewModel @Inject constructor(
         } ?: return
 
         val listenerType = method.parameterTypes.firstOrNull() ?: return
-        val proxy = Proxy.newProxyInstance(
-            listenerType.classLoader,
-            arrayOf(listenerType)
-        ) { _, callbackMethod, args ->
-            if (callbackMethod.name.contains("TextSelection", ignoreCase = true)) {
-                val newSelection = args?.getOrNull(0)
-                val currentSelection = args?.getOrNull(1)
-                latestSelectedText = newSelection.extractSelectionText().orEmpty().ifBlank {
-                    currentSelection.extractSelectionText().orEmpty()
+        if (!listenerType.isInterface) {
+            return
+        }
+
+        val proxy = runCatching {
+            Proxy.newProxyInstance(
+                listenerType.classLoader,
+                arrayOf(listenerType)
+            ) { _, callbackMethod, args ->
+                if (callbackMethod.name.contains("TextSelection", ignoreCase = true)) {
+                    val newSelection = args?.getOrNull(0)
+                    val currentSelection = args?.getOrNull(1)
+                    latestSelectedText = newSelection.extractSelectionText().orEmpty().ifBlank {
+                        currentSelection.extractSelectionText().orEmpty()
+                    }
+                }
+                when (callbackMethod.returnType) {
+                    Boolean::class.javaPrimitiveType, Boolean::class.java -> true
+                    else -> null
                 }
             }
-            when (callbackMethod.returnType) {
-                Boolean::class.javaPrimitiveType, Boolean::class.java -> true
-                else -> null
-            }
-        }
+        }.getOrNull() ?: return
+
         runCatching { method.invoke(pdfFragment, proxy) }
     }
 
@@ -798,15 +812,22 @@ class PdfReaderViewModel @Inject constructor(
         } ?: return
 
         val listenerType = method.parameterTypes.firstOrNull() ?: return
-        val proxy = Proxy.newProxyInstance(
-            listenerType.classLoader,
-            arrayOf(listenerType)
-        ) { _, callbackMethod, _ ->
-            if (callbackMethod.name.contains("Exit", ignoreCase = true)) {
-                latestSelectedText = ""
-            }
-            null
+        if (!listenerType.isInterface) {
+            return
         }
+
+        val proxy = runCatching {
+            Proxy.newProxyInstance(
+                listenerType.classLoader,
+                arrayOf(listenerType)
+            ) { _, callbackMethod, _ ->
+                if (callbackMethod.name.contains("Exit", ignoreCase = true)) {
+                    latestSelectedText = ""
+                }
+                null
+            }
+        }.getOrNull() ?: return
+
         runCatching { method.invoke(pdfFragment, proxy) }
     }
 
