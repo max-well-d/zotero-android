@@ -1,7 +1,6 @@
 package org.zotero.android.pdf.reader
 
 import android.content.Context
-import android.graphics.Color
 import android.graphics.PointF
 import android.graphics.RectF
 import android.net.Uri
@@ -260,7 +259,7 @@ class PdfReaderViewModel @Inject constructor(
     private val translationSettingsRepository by lazy { translationEntryPoint.translationSettingsRepository() }
 
     companion object {
-        private const val ZOTERO_TRANSLATE_MENU_ITEM_ID = org.zotero.android.R.id.pdf_translate_action
+        private const val ZOTERO_TRANSLATE_MENU_ITEM_ID = 0x7f0f7a11
     }
 
     override var annotationMaxSideSize = 0
@@ -482,9 +481,8 @@ class PdfReaderViewModel @Inject constructor(
                 .build()
             this@PdfReaderViewModel.pdfUiFragment.lifecycle.addObserver(object: DefaultLifecycleObserver {
                 override fun onStart(owner: LifecycleOwner) {
-                    val fragment = pdfUiFragment.pdfFragment ?: return
-                    this@PdfReaderViewModel.pdfFragment = fragment
-                    fragment.addDrawableProvider(searchResultHighlighter)
+                    this@PdfReaderViewModel.pdfFragment = pdfUiFragment.pdfFragment!!
+                    this@PdfReaderViewModel.pdfFragment.addDrawableProvider(searchResultHighlighter)
                     addDocumentListenerOnInit()
                     addOnAnnotationCreationModeChangeListener()
                     setupSupportedTextSelectionTranslationAction()
@@ -597,9 +595,145 @@ class PdfReaderViewModel @Inject constructor(
 
     }
 
+    private fun setOnPreparePopupToolbarListener() {
+        registerTranslatePopupToolbarListener()
+        this.pdfFragment.setOnPreparePopupToolbarListener { toolbar ->
+            val sourceItems = toolbar.menuItems.toMutableList()
+            val menuItems = sourceItems.listIterator()
+
+            while (menuItems.hasNext()) {
+                val item = menuItems.next()
+                when (item.id) {
+                    R.id.pspdf__text_selection_toolbar_item_strikeout,
+                    R.id.pspdf__text_selection_toolbar_item_speak,
+                    R.id.pspdf__text_selection_toolbar_item_search,
+                    R.id.pspdf__text_selection_toolbar_item_redact,
+                    R.id.pspdf__text_selection_toolbar_item_paste_annotation,
+                    R.id.pspdf__text_selection_toolbar_item_link,
+                    -> {
+                        menuItems.remove()
+                    }
+                }
+            }
+            val textHighlightItemIndex =
+                sourceItems.indexOfFirst { it.id == R.id.pspdf__text_selection_toolbar_item_highlight }
+            if (textHighlightItemIndex >= 0) {
+                sourceItems[textHighlightItemIndex] = PopupToolbarMenuItem(
+                    R.id.pspdf__text_selection_toolbar_item_highlight,
+                    org.zotero.android.R.string.pdf_highlight
+                )
+            }
+            if (sourceItems.none { it.id == ZOTERO_TRANSLATE_MENU_ITEM_ID }) {
+                createTranslatePopupToolbarItem()?.let(sourceItems::add)
+            }
+            toolbar.menuItems = sourceItems
+        }
+    }
+
+    private fun createTranslatePopupToolbarItem(): PopupToolbarMenuItem? {
+        val title = context.getString(org.zotero.android.R.string.translation_action)
+        val constructors = PopupToolbarMenuItem::class.java.constructors
+        constructors.forEach { constructor ->
+            val params = constructor.parameterTypes
+            try {
+                when {
+                    params.size == 3 &&
+                        params[0] == Int::class.javaPrimitiveType &&
+                        CharSequence::class.java.isAssignableFrom(params[1]) &&
+                        params[2].name == "kotlin.jvm.functions.Function0" -> {
+                        return constructor.newInstance(
+                            ZOTERO_TRANSLATE_MENU_ITEM_ID,
+                            title,
+                            object : kotlin.jvm.functions.Function0<Unit> {
+                                override fun invoke() {
+                                    onTranslateToolbarTapped()
+                                }
+                            }
+                        ) as PopupToolbarMenuItem
+                    }
+
+                    params.size == 4 &&
+                        params[0] == Int::class.javaPrimitiveType &&
+                        CharSequence::class.java.isAssignableFrom(params[1]) &&
+                        params[3].name == "kotlin.jvm.functions.Function0" -> {
+                        return constructor.newInstance(
+                            ZOTERO_TRANSLATE_MENU_ITEM_ID,
+                            title,
+                            0,
+                            object : kotlin.jvm.functions.Function0<Unit> {
+                                override fun invoke() {
+                                    onTranslateToolbarTapped()
+                                }
+                            }
+                        ) as PopupToolbarMenuItem
+                    }
+
+                    params.size == 3 &&
+                        params[0] == Int::class.javaPrimitiveType &&
+                        CharSequence::class.java.isAssignableFrom(params[1]) &&
+                        params[2] == Runnable::class.java -> {
+                        return constructor.newInstance(
+                            ZOTERO_TRANSLATE_MENU_ITEM_ID,
+                            title,
+                            Runnable { onTranslateToolbarTapped() }
+                        ) as PopupToolbarMenuItem
+                    }
+
+                    params.size == 2 &&
+                        params[0] == Int::class.javaPrimitiveType &&
+                        CharSequence::class.java.isAssignableFrom(params[1]) -> {
+                        return constructor.newInstance(
+                            ZOTERO_TRANSLATE_MENU_ITEM_ID,
+                            title
+                        ) as PopupToolbarMenuItem
+                    }
+                }
+            } catch (_: Throwable) {
+            }
+        }
+        return null
+    }
+
+    private fun registerTranslatePopupToolbarListener() {
+        try {
+            val listenerMethod = pdfFragment.javaClass.methods.firstOrNull { method ->
+                method.name.contains("PopupToolbar", ignoreCase = true) &&
+                    method.name.contains("Click", ignoreCase = true) &&
+                    method.parameterTypes.size == 1
+            } ?: return
+
+            val listenerType = listenerMethod.parameterTypes.firstOrNull() ?: return
+            val proxy = Proxy.newProxyInstance(
+                listenerType.classLoader,
+                arrayOf(listenerType)
+            ) { _, method, args ->
+                val menuItem = args?.firstOrNull()
+                val id = try {
+                    menuItem?.javaClass?.methods
+                        ?.firstOrNull { it.name == "getId" && it.parameterTypes.isEmpty() }
+                        ?.invoke(menuItem) as? Int
+                } catch (_: Throwable) {
+                    null
+                }
+                if (id == ZOTERO_TRANSLATE_MENU_ITEM_ID) {
+                    onTranslateToolbarTapped()
+                    when (method.returnType) {
+                        Boolean::class.javaPrimitiveType, Boolean::class.java -> true
+                        else -> Unit
+                    }
+                } else {
+                    when (method.returnType) {
+                        Boolean::class.javaPrimitiveType, Boolean::class.java -> false
+                        else -> null
+                    }
+                }
+            }
+            listenerMethod.invoke(pdfFragment, proxy)
+        } catch (_: Throwable) {
+        }
+    }
 
     private var contextualToolbarLifecycleListenerProxy: Any? = null
-    private var contextualToolbarMenuClickListenerProxy: Any? = null
     private var contextualTranslationMenuItem: Any? = null
 
     private fun setupSupportedTextSelectionTranslationAction() {
@@ -608,7 +742,7 @@ class PdfReaderViewModel @Inject constructor(
 
     private fun attachSupportedContextualToolbarTranslationAction() {
         try {
-            val host = pdfUiFragment.activity as? AppCompatActivity ?: return
+            val host = pdfUiFragment.activity ?: return
             val listenerMethod = host.javaClass.methods.firstOrNull {
                 it.name == "setOnContextualToolbarLifecycleListener" && it.parameterTypes.size == 1
             } ?: return
@@ -658,34 +792,52 @@ class PdfReaderViewModel @Inject constructor(
 
     private fun createSupportedContextualToolbarMenuItem(): Any? {
         return try {
-            val itemClass = Class.forName("com.pspdfkit.ui.toolbar.ContextualToolbarMenuItem")
-            val createMethod = itemClass.methods.firstOrNull { method ->
-                method.name == "create" &&
-                    method.parameterTypes.size == 7 &&
-                    Context::class.java.isAssignableFrom(method.parameterTypes[0]) &&
-                    method.parameterTypes[1] == Int::class.javaPrimitiveType
+            val clazz = Class.forName("com.pspdfkit.ui.toolbar.ContextualToolbarMenuItem")
+            val createMethod = clazz.methods.firstOrNull {
+                it.name == "create" && it.parameterTypes.size == 7
+            } ?: clazz.methods.firstOrNull {
+                it.name == "createSingleItem" && it.parameterTypes.size == 8
             } ?: return null
 
-            val drawable = context.getDrawable(android.R.drawable.ic_menu_search) ?: return null
-            createMethod.invoke(
-                null,
-                context,
-                ZOTERO_TRANSLATE_MENU_ITEM_ID,
-                drawable,
-                context.getString(org.zotero.android.R.string.translation_action),
-                Color.WHITE,
-                Color.RED,
-                false
-            )
+            val title = context.getString(org.zotero.android.R.string.translation_action)
+            val white = 0xFFFFFFFF.toInt()
+            val accent = 0xFF6200EE.toInt()
+
+            when (createMethod.parameterTypes.size) {
+                7 -> createMethod.invoke(
+                    null,
+                    context,
+                    ZOTERO_TRANSLATE_MENU_ITEM_ID,
+                    null,
+                    title,
+                    white,
+                    accent,
+                    false
+                )
+                8 -> createMethod.invoke(
+                    null,
+                    context,
+                    ZOTERO_TRANSLATE_MENU_ITEM_ID,
+                    null,
+                    title,
+                    white,
+                    accent,
+                    createMethod.parameterTypes[7].enumConstants?.firstOrNull(),
+                    false
+                )
+                else -> null
+            }
         } catch (_: Throwable) {
             null
         }
     }
 
     private fun isTextSelectionToolbar(toolbar: Any): Boolean {
-        return toolbar.javaClass.name.contains("TextSelectionToolbar")
+        val name = toolbar.javaClass.name
+        return name.endsWith("TextSelectionToolbar") || name.contains("TextSelectionToolbar")
     }
 
+    @Suppress("UNCHECKED_CAST")
     private fun addTranslationActionToContextualToolbar(toolbar: Any, customItem: Any) {
         try {
             val getMenuItems = toolbar.javaClass.methods.firstOrNull {
@@ -695,19 +847,19 @@ class PdfReaderViewModel @Inject constructor(
                 it.name == "setMenuItems" && it.parameterTypes.size == 1
             } ?: return
 
-            val existing = (getMenuItems.invoke(toolbar) as? MutableList<Any?>)?.toMutableList() ?: return
-            val alreadyAdded = existing.any { item ->
+            val items = (getMenuItems.invoke(toolbar) as? MutableList<Any?>)?.toMutableList() ?: return
+            val exists = items.any { item ->
                 try {
                     item?.javaClass?.methods
-                        ?.firstOrNull { m -> m.name == "getId" && m.parameterTypes.isEmpty() }
+                        ?.firstOrNull { it.name == "getId" && it.parameterTypes.isEmpty() }
                         ?.invoke(item) == ZOTERO_TRANSLATE_MENU_ITEM_ID
                 } catch (_: Throwable) {
                     false
                 }
             }
-            if (!alreadyAdded) {
-                existing.add(customItem)
-                setMenuItems.invoke(toolbar, existing)
+            if (!exists) {
+                items.add(customItem)
+                setMenuItems.invoke(toolbar, items)
             }
         } catch (_: Throwable) {
         }
@@ -715,203 +867,9 @@ class PdfReaderViewModel @Inject constructor(
 
     private fun attachContextualToolbarMenuClickListener(toolbar: Any) {
         try {
-            val setClickListener = toolbar.javaClass.methods.firstOrNull {
+            val listenerMethod = toolbar.javaClass.methods.firstOrNull {
                 it.name == "setOnMenuItemClickListener" && it.parameterTypes.size == 1
             } ?: return
-            val listenerType = setClickListener.parameterTypes.firstOrNull() ?: return
-            if (!listenerType.isInterface) return
-
-            val proxy = Proxy.newProxyInstance(
-                listenerType.classLoader,
-                arrayOf(listenerType)
-            ) { proxy, method, args ->
-                when (method.name) {
-                    "equals", "hashCode", "toString" -> defaultProxyReturn(method, proxy, args)
-                    else -> {
-                        val id = extractMenuItemId(args)
-                        if (id == ZOTERO_TRANSLATE_MENU_ITEM_ID) {
-                            onTranslateToolbarTapped()
-                            when (method.returnType) {
-                                Boolean::class.javaPrimitiveType, Boolean::class.java -> true
-                                else -> Unit
-                            }
-                        } else {
-                            defaultProxyReturn(method, proxy, args)
-                        }
-                    }
-                }
-            }
-
-            setClickListener.invoke(toolbar, proxy)
-            contextualToolbarMenuClickListenerProxy = proxy
-        } catch (_: Throwable) {
-        }
-    }
-
-    private fun clearContextualToolbarMenuClickListener(toolbar: Any) {
-        try {
-            val setClickListener = toolbar.javaClass.methods.firstOrNull {
-                it.name == "setOnMenuItemClickListener" && it.parameterTypes.size == 1
-            } ?: return
-            setClickListener.invoke(toolbar, null)
-            contextualToolbarMenuClickListenerProxy = null
-        } catch (_: Throwable) {
-        }
-    }
-
-    private fun setupSupportedTextSelectionTranslationAction() {
-        registerTranslatePopupToolbarListener()
-        this.pdfFragment.setOnPreparePopupToolbarListener { toolbar ->
-            val sourceItems = toolbar.menuItems.toMutableList()
-            val menuItems = sourceItems.listIterator()
-
-            while (menuItems.hasNext()) {
-                val item = menuItems.next()
-                when (item.id) {
-                    R.id.pspdf__text_selection_toolbar_item_strikeout,
-                    R.id.pspdf__text_selection_toolbar_item_speak,
-                    R.id.pspdf__text_selection_toolbar_item_search,
-                    R.id.pspdf__text_selection_toolbar_item_redact,
-                    R.id.pspdf__text_selection_toolbar_item_paste_annotation,
-                    R.id.pspdf__text_selection_toolbar_item_link,
-                    -> {
-                        menuItems.remove()
-                    }
-                }
-            }
-            val textHighlightItemIndex =
-                sourceItems.indexOfFirst { it.id == R.id.pspdf__text_selection_toolbar_item_highlight }
-            if (textHighlightItemIndex >= 0) {
-                sourceItems[textHighlightItemIndex] = PopupToolbarMenuItem(
-                    R.id.pspdf__text_selection_toolbar_item_highlight,
-                    org.zotero.android.R.string.pdf_highlight
-                )
-            }
-            if (sourceItems.none { it.id == ZOTERO_TRANSLATE_MENU_ITEM_ID }) {
-                createTranslatePopupToolbarItem()?.let(sourceItems::add)
-            }
-            toolbar.menuItems = sourceItems
-        }
-    }
-
-    private fun createTranslatePopupToolbarItem(): PopupToolbarMenuItem? {
-        val titleResId = org.zotero.android.R.string.translation_action
-        val titleText = context.getString(titleResId)
-        val constructors = PopupToolbarMenuItem::class.java.constructors
-
-        fun callbackFunction0() = object : kotlin.jvm.functions.Function0<Unit> {
-            override fun invoke() {
-                onTranslateToolbarTapped()
-            }
-        }
-
-        val callbackFactories: List<(java.lang.reflect.Constructor<*>) -> PopupToolbarMenuItem?> = listOf(
-            { constructor ->
-                val p = constructor.parameterTypes
-                if (p.size == 3 && p[0] == Int::class.javaPrimitiveType && p[1] == Int::class.javaPrimitiveType && p[2].name == "kotlin.jvm.functions.Function0") {
-                    constructor.newInstance(ZOTERO_TRANSLATE_MENU_ITEM_ID, titleResId, callbackFunction0()) as PopupToolbarMenuItem
-                } else null
-            },
-            { constructor ->
-                val p = constructor.parameterTypes
-                if (p.size == 4 && p[0] == Int::class.javaPrimitiveType && p[1] == Int::class.javaPrimitiveType && p[2] == Int::class.javaPrimitiveType && p[3].name == "kotlin.jvm.functions.Function0") {
-                    constructor.newInstance(ZOTERO_TRANSLATE_MENU_ITEM_ID, titleResId, 0, callbackFunction0()) as PopupToolbarMenuItem
-                } else null
-            },
-            { constructor ->
-                val p = constructor.parameterTypes
-                if (p.size == 3 && p[0] == Int::class.javaPrimitiveType && CharSequence::class.java.isAssignableFrom(p[1]) && p[2].name == "kotlin.jvm.functions.Function0") {
-                    constructor.newInstance(ZOTERO_TRANSLATE_MENU_ITEM_ID, titleText, callbackFunction0()) as PopupToolbarMenuItem
-                } else null
-            },
-            { constructor ->
-                val p = constructor.parameterTypes
-                if (p.size == 4 && p[0] == Int::class.javaPrimitiveType && CharSequence::class.java.isAssignableFrom(p[1]) && p[2] == Int::class.javaPrimitiveType && p[3].name == "kotlin.jvm.functions.Function0") {
-                    constructor.newInstance(ZOTERO_TRANSLATE_MENU_ITEM_ID, titleText, 0, callbackFunction0()) as PopupToolbarMenuItem
-                } else null
-            },
-            { constructor ->
-                val p = constructor.parameterTypes
-                if (p.size == 3 && p[0] == Int::class.javaPrimitiveType && p[1] == Int::class.javaPrimitiveType && p[2] == Runnable::class.java) {
-                    constructor.newInstance(ZOTERO_TRANSLATE_MENU_ITEM_ID, titleResId, Runnable { onTranslateToolbarTapped() }) as PopupToolbarMenuItem
-                } else null
-            },
-            { constructor ->
-                val p = constructor.parameterTypes
-                if (p.size == 3 && p[0] == Int::class.javaPrimitiveType && CharSequence::class.java.isAssignableFrom(p[1]) && p[2] == Runnable::class.java) {
-                    constructor.newInstance(ZOTERO_TRANSLATE_MENU_ITEM_ID, titleText, Runnable { onTranslateToolbarTapped() }) as PopupToolbarMenuItem
-                } else null
-            },
-            { constructor ->
-                val p = constructor.parameterTypes
-                if (p.size == 2 && p[0] == Int::class.javaPrimitiveType && p[1] == Int::class.javaPrimitiveType) {
-                    constructor.newInstance(ZOTERO_TRANSLATE_MENU_ITEM_ID, titleResId) as PopupToolbarMenuItem
-                } else null
-            },
-            { constructor ->
-                val p = constructor.parameterTypes
-                if (p.size == 2 && p[0] == Int::class.javaPrimitiveType && CharSequence::class.java.isAssignableFrom(p[1])) {
-                    constructor.newInstance(ZOTERO_TRANSLATE_MENU_ITEM_ID, titleText) as PopupToolbarMenuItem
-                } else null
-            },
-        )
-
-        constructors.forEach { constructor ->
-            callbackFactories.forEach { factory ->
-                try {
-                    factory(constructor)?.let { return it }
-                } catch (_: Throwable) {
-                }
-            }
-        }
-        return null
-    }
-
-    private fun defaultProxyReturn(method: java.lang.reflect.Method, proxy: Any, args: Array<out Any?>?): Any? {
-        return when (method.name) {
-            "equals" -> proxy === args?.getOrNull(0)
-            "hashCode" -> System.identityHashCode(proxy)
-            "toString" -> "ZoteroTranslationProxy(${method.declaringClass.name})"
-            else -> when (method.returnType) {
-                Boolean::class.javaPrimitiveType, Boolean::class.java -> false
-                Int::class.javaPrimitiveType, Int::class.java -> 0
-                Long::class.javaPrimitiveType, Long::class.java -> 0L
-                Float::class.javaPrimitiveType, Float::class.java -> 0f
-                Double::class.javaPrimitiveType, Double::class.java -> 0.0
-                Void.TYPE -> Unit
-                else -> null
-            }
-        }
-    }
-
-    private fun extractMenuItemId(args: Array<out Any?>?): Int? {
-        args?.forEach { candidate ->
-            try {
-                val id = candidate?.javaClass?.methods
-                    ?.firstOrNull { it.name == "getId" && it.parameterTypes.isEmpty() }
-                    ?.invoke(candidate) as? Int
-                if (id != null) {
-                    return id
-                }
-            } catch (_: Throwable) {
-            }
-        }
-        return null
-    }
-
-    private fun registerTranslatePopupToolbarListener() {
-        try {
-            val listenerMethod = pdfFragment.javaClass.methods.firstOrNull { method ->
-                method.parameterTypes.size == 1 &&
-                    method.name.contains("popup", ignoreCase = true) &&
-                    (
-                        method.name.contains("menu", ignoreCase = true) ||
-                            method.name.contains("item", ignoreCase = true) ||
-                            method.name.contains("click", ignoreCase = true) ||
-                            method.name.contains("select", ignoreCase = true)
-                        )
-            } ?: return
-
             val listenerType = listenerMethod.parameterTypes.firstOrNull() ?: return
             if (!listenerType.isInterface) return
 
@@ -922,8 +880,16 @@ class PdfReaderViewModel @Inject constructor(
                 when (method.name) {
                     "equals", "hashCode", "toString" -> defaultProxyReturn(method, proxy, args)
                     else -> {
-                        val id = extractMenuItemId(args)
-                        if (id == ZOTERO_TRANSLATE_MENU_ITEM_ID) {
+                        val handled = args.orEmpty().any { candidate ->
+                            try {
+                                candidate?.javaClass?.methods
+                                    ?.firstOrNull { it.name == "getId" && it.parameterTypes.isEmpty() }
+                                    ?.invoke(candidate) == ZOTERO_TRANSLATE_MENU_ITEM_ID
+                            } catch (_: Throwable) {
+                                false
+                            }
+                        }
+                        if (handled) {
                             onTranslateToolbarTapped()
                             when (method.returnType) {
                                 Boolean::class.javaPrimitiveType, Boolean::class.java -> true
@@ -935,8 +901,36 @@ class PdfReaderViewModel @Inject constructor(
                     }
                 }
             }
-            listenerMethod.invoke(pdfFragment, proxy)
+
+            listenerMethod.invoke(toolbar, proxy)
         } catch (_: Throwable) {
+        }
+    }
+
+    private fun clearContextualToolbarMenuClickListener(toolbar: Any) {
+        try {
+            val listenerMethod = toolbar.javaClass.methods.firstOrNull {
+                it.name == "setOnMenuItemClickListener" && it.parameterTypes.size == 1
+            } ?: return
+            listenerMethod.invoke(toolbar, null)
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun defaultProxyReturn(method: java.lang.reflect.Method, proxy: Any, args: Array<out Any?>?): Any? {
+        return when (method.name) {
+            "equals" -> proxy === args?.firstOrNull()
+            "hashCode" -> System.identityHashCode(proxy)
+            "toString" -> "PdfReaderTranslationProxy(${proxy.javaClass.name})"
+            else -> when (method.returnType) {
+                Boolean::class.javaPrimitiveType, Boolean::class.java -> false
+                Int::class.javaPrimitiveType, java.lang.Integer::class.java -> 0
+                Long::class.javaPrimitiveType, java.lang.Long::class.java -> 0L
+                Float::class.javaPrimitiveType, java.lang.Float::class.java -> 0f
+                Double::class.javaPrimitiveType, java.lang.Double::class.java -> 0.0
+                Void.TYPE -> Unit
+                else -> null
+            }
         }
     }
 
