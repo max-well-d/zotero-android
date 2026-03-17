@@ -37,8 +37,8 @@ class TranslationService(
         }
     }
 
-    suspend fun testConnection(testText: String = "Hello world"): Result<Unit> {
-        return translate(text = testText).map { Unit }
+    suspend fun testConnection(): Result<Unit> {
+        return translate(text = "Hello world").map { Unit }
     }
 
     private fun translateWithBaidu(
@@ -67,7 +67,7 @@ class TranslationService(
             throw IllegalStateException(json.optString("error_msg", "百度翻译请求失败"))
         }
         val translations = json.optJSONArray("trans_result") ?: JSONArray()
-        val translatedText = joinJsonArrayStrings(translations, key = "dst")
+        val translatedText = buildBaiduTranslatedText(translations)
         if (translatedText.isBlank()) {
             throw IllegalStateException("百度翻译未返回结果")
         }
@@ -99,12 +99,11 @@ class TranslationService(
             headers = mapOf("Authorization" to "DeepL-Auth-Key ${settings.apiKey}"),
         )
         val translations = json.optJSONArray("translations") ?: JSONArray()
-        val firstResult = translations.optJSONObject(0)
-            ?: throw IllegalStateException("DeepL 未返回结果")
-        val translatedText = joinJsonArrayStrings(translations, key = "text")
+        val translatedText = buildDeepLTranslatedText(translations)
         if (translatedText.isBlank()) {
             throw IllegalStateException("DeepL 未返回结果")
         }
+        val firstResult = translations.optJSONObject(0) ?: JSONObject()
         return TranslationResult(
             originalText = text,
             translatedText = translatedText,
@@ -114,20 +113,28 @@ class TranslationService(
         )
     }
 
-    private fun joinJsonArrayStrings(array: JSONArray, key: String): String {
-        val parts = buildList {
-            for (i in 0 until array.length()) {
-                val value = array.optJSONObject(i)?.optString(key).orEmpty()
-                if (value.isNotBlank()) {
-                    add(value)
+    private fun buildBaiduTranslatedText(translations: JSONArray): String {
+        val lines = buildList {
+            for (index in 0 until translations.length()) {
+                val dst = translations.optJSONObject(index)?.optString("dst").orEmpty().trim()
+                if (dst.isNotBlank()) {
+                    add(dst)
                 }
             }
         }
-        return when (parts.size) {
-            0 -> ""
-            1 -> parts.first()
-            else -> parts.joinToString(separator = "\n")
+        return lines.joinToString("\n")
+    }
+
+    private fun buildDeepLTranslatedText(translations: JSONArray): String {
+        val lines = buildList {
+            for (index in 0 until translations.length()) {
+                val text = translations.optJSONObject(index)?.optString("text").orEmpty().trim()
+                if (text.isNotBlank()) {
+                    add(text)
+                }
+            }
         }
+        return lines.joinToString("\n")
     }
 
     private fun postForm(
