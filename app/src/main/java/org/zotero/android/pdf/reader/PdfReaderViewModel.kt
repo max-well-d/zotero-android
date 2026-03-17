@@ -603,9 +603,7 @@ class PdfReaderViewModel @Inject constructor(
         if (textSelectionListenersRegistered) return
         textSelectionListenersRegistered = true
         registerTextSelectionListener("addOnTextSelectionChangeListener")
-        registerTextSelectionListener("setOnTextSelectionChangeListener")
         registerTextSelectionListener("addOnTextSelectionModeChangeListener")
-        registerTextSelectionListener("setOnTextSelectionModeChangeListener")
     }
 
     private fun registerTextSelectionListener(methodName: String) {
@@ -628,17 +626,15 @@ class PdfReaderViewModel @Inject constructor(
                             .mapNotNull { extractTextFromSelectionObject(it) }
                             .map { it.trim() }
                             .firstOrNull { it.isNotBlank() }
-                        if (!extracted.isNullOrBlank()) {
-                            cachedSelectedText = extracted
-                        }
 
-                        val hasFalseBoolean = args.orEmpty().any { it is Boolean && !it }
-                        if (hasFalseBoolean || (methodName.contains("Mode") && extracted.isNullOrBlank())) {
-                            cachedSelectedText = ""
+                        when {
+                            !extracted.isNullOrBlank() -> cachedSelectedText = extracted
+                            calledMethod.name.contains("ExitTextSelectionMode", ignoreCase = true) -> cachedSelectedText = ""
+                            calledMethod.name.contains("TextSelectionChange", ignoreCase = true) && args.orEmpty().all { it == null } -> cachedSelectedText = ""
                         }
 
                         when (calledMethod.returnType) {
-                            Boolean::class.javaPrimitiveType, java.lang.Boolean::class.java -> false
+                            Boolean::class.javaPrimitiveType, java.lang.Boolean::class.java -> true
                             Int::class.javaPrimitiveType, java.lang.Integer::class.java -> 0
                             Long::class.javaPrimitiveType, java.lang.Long::class.java -> 0L
                             Float::class.javaPrimitiveType, java.lang.Float::class.java -> 0f
