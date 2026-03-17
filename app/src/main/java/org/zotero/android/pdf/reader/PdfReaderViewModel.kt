@@ -612,16 +612,29 @@ class PdfReaderViewModel @Inject constructor(
         }
 
         val changeListener = object : TextSelectionManager.OnTextSelectionChangeListener {
-            override fun onTextSelectionChange(
-                newTextSelection: TextSelection?,
-                currentTextSelection: TextSelection?
+            override fun onBeforeTextSelectionChange(
+                p0: TextSelection?,
+                p1: TextSelection?
             ): Boolean {
-                val text = newTextSelection?.text?.trim().orEmpty()
+                return true
+            }
+
+            override fun onAfterTextSelectionChange(
+                p0: TextSelection?,
+                p1: TextSelection?
+            ) {
+                val text = p0?.text?.trim().orEmpty()
                 selectedTextCache = text
                 if (text.isNotBlank()) {
                     lastStableSelectedText = text
                 }
-                return true
+                currentTextSelectionController?.textSelection?.text
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let {
+                        selectedTextCache = it
+                        lastStableSelectedText = it
+                    }
             }
         }
 
