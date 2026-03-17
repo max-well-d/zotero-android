@@ -37,8 +37,8 @@ class TranslationService(
         }
     }
 
-    suspend fun testConnection(): Result<Unit> {
-        return translate(text = "Hello world").map { Unit }
+    suspend fun testConnection(testText: String = "Hello world"): Result<Unit> {
+        return translate(text = testText).map { Unit }
     }
 
     private fun translateWithBaidu(
