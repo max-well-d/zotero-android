@@ -20,8 +20,37 @@ class TranslationService(
         text: String,
         sourceLanguage: String = "auto",
         targetLanguage: String? = null,
-    ): Result<TranslationResult> = withContext(Dispatchers.IO) {
+    ): Result<TranslationResult> {
         val settings = settingsRepository.getSettings()
+        return translateWithSettings(
+            text = text,
+            sourceLanguage = sourceLanguage,
+            targetLanguage = targetLanguage,
+            settings = settings,
+        )
+    }
+
+    suspend fun testConnection(): Result<Unit> {
+        return translate(text = "Hello world").map { Unit }
+    }
+
+    suspend fun testConnection(settings: TranslationSettings): Result<Unit> {
+        return translateWithSettings(
+            text = "Hello world",
+            settings = settings,
+        ).map { Unit }
+    }
+
+    suspend fun testConnection(testText: String): Result<Unit> {
+        return translate(text = testText).map { Unit }
+    }
+
+    private suspend fun translateWithSettings(
+        text: String,
+        sourceLanguage: String = "auto",
+        targetLanguage: String? = null,
+        settings: TranslationSettings,
+    ): Result<TranslationResult> = withContext(Dispatchers.IO) {
         val resolvedTarget = targetLanguage ?: settings.targetLanguage
         if (text.isBlank()) {
             return@withContext Result.failure(IllegalArgumentException("翻译文本不能为空"))
@@ -35,10 +64,6 @@ class TranslationService(
                 TranslationApi.DEEPL -> translateWithDeepL(text, sourceLanguage, resolvedTarget, settings)
             }
         }
-    }
-
-    suspend fun testConnection(): Result<Unit> {
-        return translate(text = "Hello world").map { Unit }
     }
 
     private fun translateWithBaidu(
