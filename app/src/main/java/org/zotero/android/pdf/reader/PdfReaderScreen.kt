@@ -4,13 +4,10 @@ import android.view.MotionEvent
 import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
@@ -21,12 +18,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import org.zotero.android.architecture.ui.CustomLayoutSize
 import org.zotero.android.architecture.ui.ObserveLifecycleEvent
+import androidx.compose.ui.unit.dp
 import org.zotero.android.pdf.annotation.sidebar.PdfAnnotationNavigationView
 import org.zotero.android.pdf.annotationmore.sidebar.PdfAnnotationMoreNavigationView
 import org.zotero.android.pdf.reader.modes.PdfReaderPhoneMode
@@ -181,7 +180,7 @@ internal fun PdfReaderScreen(
             PdfReaderSearchViewState()
         )
 
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier) {
             CustomScaffoldM3(
                 modifier = Modifier.pointerInteropFilter {
                     when (it.action) {
@@ -246,10 +245,9 @@ internal fun PdfReaderScreen(
                     )
                 }
             }
-
             if (!viewState.isTranslationLoading && viewState.translationDialogState == null) {
                 ExtendedFloatingActionButton(
-                    onClick = viewModel::onTranslateQuickActionTapped,
+                    onClick = viewModel::onTranslateActionTapped,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(16.dp),
@@ -257,13 +255,12 @@ internal fun PdfReaderScreen(
                     Text(text = stringResource(id = org.zotero.android.R.string.translation_action))
                 }
             }
-
-            PdfAnnotationNavigationView(viewState = viewState, viewModel = viewModel)
-            PdfAnnotationMoreNavigationView(viewState = viewState, viewModel = viewModel)
-            PdfSettingsView(viewState = viewState, viewModel = viewModel)
-            PdfCopyCitationView(viewState = viewState, viewModel = viewModel)
-            PdfTranslationResultDialog(viewState = viewState, viewModel = viewModel)
         }
+        PdfAnnotationNavigationView(viewState = viewState, viewModel = viewModel)
+        PdfAnnotationMoreNavigationView(viewState = viewState, viewModel = viewModel)
+        PdfSettingsView(viewState = viewState, viewModel = viewModel)
+        PdfCopyCitationView(viewState = viewState, viewModel = viewModel)
+        PdfTranslationResultDialog(viewState = viewState, viewModel = viewModel)
     }
 
 }
