@@ -895,10 +895,44 @@ class PdfReaderViewModel @Inject constructor(
     }
 
     private fun currentSelectedText(): String {
+            val fragmentMethods = pdfFragment.javaClass.methods.filter { it.parameterTypes.isEmpty() }
+
+            val controller = fragmentMethods.firstNotNullOfOrNull { method ->
+                val returnTypeName = method.returnType.name
+                val methodName = method.name
+
+                val looksLikeTextSelectionController =
+                    returnTypeName.contains("TextSelectionController", ignoreCase = true) ||
+                        methodName.contains("TextSelectionController", ignoreCase = true)
+
+                val looksLikeSpecialModeAccessor =
+                    methodName.contains("getCurrentSpecialModeController", ignoreCase = true) ||
+                        methodName.contains("getFragmentSpecialModeController", ignoreCase = true) ||
+                        methodName.contains("getSpecialModeController", ignoreCase = true) ||
+                        methodName.contains("getCurrentlyActiveController", ignoreCase = true) ||
+                        methodName.contains("getActiveController", ignoreCase = true)
+
+                if (!looksLikeTextSelectionController && !looksLikeSpecialModeAccessor) {
+                    return@firstNotNullOfOrNull null
+                }
+
+                runCatching { method.invoke(pdfFragment) }.getOrNull()
+            }
+
+            val textSelection = controller?.javaClass?.methods
+                ?.firstOrNull { it.name == "getTextSelection" && it.parameterTypes.isEmpty() }
+                ?.let { method -> runCatching { method.invoke(controller) }.getOrNull() }
+
+            val directText = extractTextFromTextSelection(textSelection)?.trim()
+            if (!directText.isNullOrBlank()) {
+                return directText
+            }
+        } catch (_: Throwable) {
+        }
+
         cachedSelectedText.trim().takeIf { it.isNotBlank() }?.let { return it }
         lastStableSelectedText.trim().takeIf { it.isNotBlank() }?.let { return it }
 
-        try {
             val manager = pdfFragment.javaClass.methods.firstOrNull {
                 it.parameterTypes.isEmpty() && (
                     it.name == "getTextSelectionManager" || it.name == "textSelectionManager"
