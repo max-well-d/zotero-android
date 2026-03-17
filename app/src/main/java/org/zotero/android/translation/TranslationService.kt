@@ -52,22 +52,38 @@ class TranslationService(
         settings: TranslationSettings,
     ): Result<TranslationResult> = withContext(Dispatchers.IO) {
         val resolvedTarget = targetLanguage ?: settings.targetLanguage
-        if (text.isBlank()) {
+        val normalizedInputText = normalizeInputText(text)
+
+        if (normalizedInputText.isBlank()) {
             return@withContext Result.failure(IllegalArgumentException("翻译文本不能为空"))
         }
         if (!settings.hasValidCredentials()) {
             return@withContext Result.failure(IllegalStateException("请先在设置中配置翻译凭证"))
         }
+
         runCatching {
             when (settings.api) {
-                TranslationApi.BAIDU -> translateWithBaidu(text, sourceLanguage, resolvedTarget, settings)
-                TranslationApi.DEEPL -> translateWithDeepL(text, sourceLanguage, resolvedTarget, settings)
+                TranslationApi.BAIDU -> translateWithBaidu(
+                    originalText = text,
+                    requestText = normalizedInputText,
+                    sourceLanguage = sourceLanguage,
+                    targetLanguage = resolvedTarget,
+                    settings = settings,
+                )
+                TranslationApi.DEEPL -> translateWithDeepL(
+                    originalText = text,
+                    requestText = normalizedInputText,
+                    sourceLanguage = sourceLanguage,
+                    targetLanguage = resolvedTarget,
+                    settings = settings,
+                )
             }
         }
     }
 
     private fun translateWithBaidu(
-        text: String,
+        originalText: String,
+        requestText: String,
         sourceLanguage: String,
         targetLanguage: String,
         settings: TranslationSettings,
@@ -75,12 +91,12 @@ class TranslationService(
         val salt = UUID.randomUUID().toString().take(8)
         val sign = BaiduSignUtil.generate(
             appId = settings.baiduAppId,
-            query = text,
+            query = requestText,
             salt = salt,
             secretKey = settings.baiduSecretKey,
         )
         val params = linkedMapOf(
-            "q" to text,
+            "q" to requestText,
             "from" to sourceLanguage,
             "to" to normalizeBaiduLanguage(targetLanguage),
             "appid" to settings.baiduAppId,
@@ -97,7 +113,7 @@ class TranslationService(
             throw IllegalStateException("百度翻译未返回结果")
         }
         return TranslationResult(
-            originalText = text,
+            originalText = originalText,
             translatedText = translatedText,
             detectedSourceLang = json.optString("from", sourceLanguage),
             targetLanguage = json.optString("to", targetLanguage),
@@ -106,13 +122,14 @@ class TranslationService(
     }
 
     private fun translateWithDeepL(
-        text: String,
+        originalText: String,
+        requestText: String,
         sourceLanguage: String,
         targetLanguage: String,
         settings: TranslationSettings,
     ): TranslationResult {
         val params = linkedMapOf(
-            "text" to text,
+            "text" to requestText,
             "target_lang" to normalizeDeepLLanguage(targetLanguage),
         )
         if (sourceLanguage.isNotBlank() && sourceLanguage != "auto") {
@@ -130,7 +147,7 @@ class TranslationService(
         }
         val firstResult = translations.optJSONObject(0) ?: JSONObject()
         return TranslationResult(
-            originalText = text,
+            originalText = originalText,
             translatedText = translatedText,
             detectedSourceLang = firstResult.optString("detected_source_language", sourceLanguage),
             targetLanguage = normalizeDeepLLanguage(targetLanguage),
@@ -166,9 +183,16 @@ class TranslationService(
         return normalizeParagraphText(parts.joinToString(" "))
     }
 
+    private fun normalizeInputText(text: String): String {
+        return text
+            .replace(Regex("[\\u000A\\u000B\\u000C\\u000D\\u0085\\u2028\\u2029]+"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+    }
+
     private fun normalizeParagraphText(text: String): String {
         return text
-            .replace(Regex("[\\r\\n]+"), " ")
+            .replace(Regex("[\\u000A\\u000B\\u000C\\u000D\\u0085\\u2028\\u2029]+"), " ")
             .replace(Regex("\\s+"), " ")
             .trim()
     }
