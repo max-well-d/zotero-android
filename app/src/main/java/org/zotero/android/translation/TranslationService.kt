@@ -64,14 +64,14 @@ class TranslationService(
         runCatching {
             when (settings.api) {
                 TranslationApi.BAIDU -> translateWithBaidu(
-                    originalText = text,
+                    originalText = normalizedInputText,
                     requestText = normalizedInputText,
                     sourceLanguage = sourceLanguage,
                     targetLanguage = resolvedTarget,
                     settings = settings,
                 )
                 TranslationApi.DEEPL -> translateWithDeepL(
-                    originalText = text,
+                    originalText = normalizedInputText,
                     requestText = normalizedInputText,
                     sourceLanguage = sourceLanguage,
                     targetLanguage = resolvedTarget,
@@ -156,44 +156,48 @@ class TranslationService(
     }
 
     private fun buildBaiduTranslatedText(translations: JSONArray): String {
-        val parts = buildList {
-            for (index in 0 until translations.length()) {
-                val dst = normalizeParagraphText(
-                    translations.optJSONObject(index)?.optString("dst").orEmpty(),
-                )
-                if (dst.isNotBlank()) {
-                    add(dst)
-                }
+        val parts = mutableListOf<String>()
+        for (index in 0 until translations.length()) {
+            val dst = translations.optJSONObject(index)?.optString("dst").orEmpty()
+            val cleaned = normalizeTranslatedText(dst)
+            if (cleaned.isNotBlank()) {
+                parts += cleaned
             }
         }
-        return normalizeParagraphText(parts.joinToString(" "))
+        return normalizeTranslatedText(parts.joinToString(" "))
     }
 
     private fun buildDeepLTranslatedText(translations: JSONArray): String {
-        val parts = buildList {
-            for (index in 0 until translations.length()) {
-                val text = normalizeParagraphText(
-                    translations.optJSONObject(index)?.optString("text").orEmpty(),
-                )
-                if (text.isNotBlank()) {
-                    add(text)
-                }
+        val parts = mutableListOf<String>()
+        for (index in 0 until translations.length()) {
+            val text = translations.optJSONObject(index)?.optString("text").orEmpty()
+            val cleaned = normalizeTranslatedText(text)
+            if (cleaned.isNotBlank()) {
+                parts += cleaned
             }
         }
-        return normalizeParagraphText(parts.joinToString(" "))
+        return normalizeTranslatedText(parts.joinToString(" "))
     }
 
     private fun normalizeInputText(text: String): String {
-        return text
-            .replace(Regex("[\\u000A\\u000B\\u000C\\u000D\\u0085\\u2028\\u2029]+"), " ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
+        return normalizeToSingleParagraph(text)
     }
 
-    private fun normalizeParagraphText(text: String): String {
+    private fun normalizeTranslatedText(text: String): String {
+        return normalizeToSingleParagraph(text)
+    }
+
+    private fun normalizeToSingleParagraph(text: String): String {
+        if (text.isBlank()) {
+            return ""
+        }
+
         return text
-            .replace(Regex("[\\u000A\\u000B\\u000C\\u000D\\u0085\\u2028\\u2029]+"), " ")
-            .replace(Regex("\\s+"), " ")
+            .replace(SOFT_HYPHEN_REGEX, "")
+            .replace(ZERO_WIDTH_REGEX, "")
+            .replace(HYPHENATED_LINE_BREAK_REGEX, "$1$2")
+            .replace(LINE_BREAK_REGEX, " ")
+            .replace(WHITESPACE_REGEX, " ")
             .trim()
     }
 
@@ -246,5 +250,15 @@ class TranslationService(
             "zh", "zh-cn", "zh_hans" -> "ZH"
             else -> language.uppercase()
         }
+    }
+
+    private companion object {
+        val SOFT_HYPHEN_REGEX = Regex("\\u00AD")
+        val ZERO_WIDTH_REGEX = Regex("[\\u200B\\u200C\\u200D\\u2060\\uFEFF]")
+        val HYPHENATED_LINE_BREAK_REGEX = Regex(
+            "([\\p{L}\\p{N}])\\s*[-‐‑‒]\\s*(?:\\r\\n|\\r|\\n|\\u0085|\\u2028|\\u2029)+\\s*([\\p{L}\\p{N}])",
+        )
+        val LINE_BREAK_REGEX = Regex("(?:\\r\\n|\\r|\\n|\\u0085|\\u2028|\\u2029)+")
+        val WHITESPACE_REGEX = Regex("\\s+")
     }
 }
