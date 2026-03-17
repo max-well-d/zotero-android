@@ -139,27 +139,38 @@ class TranslationService(
     }
 
     private fun buildBaiduTranslatedText(translations: JSONArray): String {
-        val lines = buildList {
+        val parts = buildList {
             for (index in 0 until translations.length()) {
-                val dst = translations.optJSONObject(index)?.optString("dst").orEmpty().trim()
+                val dst = normalizeParagraphText(
+                    translations.optJSONObject(index)?.optString("dst").orEmpty(),
+                )
                 if (dst.isNotBlank()) {
                     add(dst)
                 }
             }
         }
-        return lines.joinToString("\n")
+        return normalizeParagraphText(parts.joinToString(" "))
     }
 
     private fun buildDeepLTranslatedText(translations: JSONArray): String {
-        val lines = buildList {
+        val parts = buildList {
             for (index in 0 until translations.length()) {
-                val text = translations.optJSONObject(index)?.optString("text").orEmpty().trim()
+                val text = normalizeParagraphText(
+                    translations.optJSONObject(index)?.optString("text").orEmpty(),
+                )
                 if (text.isNotBlank()) {
                     add(text)
                 }
             }
         }
-        return lines.joinToString("\n")
+        return normalizeParagraphText(parts.joinToString(" "))
+    }
+
+    private fun normalizeParagraphText(text: String): String {
+        return text
+            .replace(Regex("[\\r\\n]+"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
     }
 
     private fun postForm(
