@@ -45,6 +45,7 @@ import com.pspdfkit.configuration.theming.ThemeMode
 import com.pspdfkit.document.OutlineElement
 import com.pspdfkit.document.PdfDocument
 import com.pspdfkit.document.PdfDocumentLoader
+import com.pspdfkit.datastructures.TextSelection
 import com.pspdfkit.listeners.DocumentListener
 import com.pspdfkit.listeners.scrolling.DocumentScrollListener
 import com.pspdfkit.listeners.scrolling.ScrollState
@@ -56,7 +57,9 @@ import com.pspdfkit.ui.search.SearchResultHighlighter
 import com.pspdfkit.ui.special_mode.controller.AnnotationCreationController
 import com.pspdfkit.ui.special_mode.controller.AnnotationSelectionController
 import com.pspdfkit.ui.special_mode.controller.AnnotationTool
+import com.pspdfkit.ui.special_mode.controller.TextSelectionController
 import com.pspdfkit.ui.special_mode.manager.AnnotationManager
+import com.pspdfkit.ui.special_mode.manager.TextSelectionManager
 import com.pspdfkit.ui.toolbar.popup.PopupToolbarMenuItem
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -258,9 +261,12 @@ class PdfReaderViewModel @Inject constructor(
 
     private val translationService by lazy { translationEntryPoint.translationService() }
     private val translationSettingsRepository by lazy { translationEntryPoint.translationSettingsRepository() }
-    private var cachedSelectedText: String = ""
+    private var selectedTextCache: String = ""
     private var lastStableSelectedText: String = ""
-    private var textSelectionListenersRegistered: Boolean = false
+    private var currentTextSelectionController: TextSelectionController? = null
+    private var textSelectionListenersRegistered = false
+    private var textSelectionChangeListener: TextSelectionManager.OnTextSelectionChangeListener? = null
+    private var textSelectionModeChangeListener: TextSelectionManager.OnTextSelectionModeChangeListener? = null
 
     companion object {
         private const val ZOTERO_TRANSLATE_MENU_ITEM_ID = 0x7f0f7a11
@@ -485,8 +491,7 @@ class PdfReaderViewModel @Inject constructor(
                 .build()
             this@PdfReaderViewModel.pdfUiFragment.lifecycle.addObserver(object: DefaultLifecycleObserver {
                 override fun onStart(owner: LifecycleOwner) {
-                    val fragment = pdfUiFragment.pdfFragment ?: return
-                    this@PdfReaderViewModel.pdfFragment = fragment
+                    this@PdfReaderViewModel.pdfFragment = pdfUiFragment.pdfFragment!!
                     this@PdfReaderViewModel.pdfFragment.addDrawableProvider(searchResultHighlighter)
                     addDocumentListenerOnInit()
                     addOnAnnotationCreationModeChangeListener()
@@ -495,6 +500,7 @@ class PdfReaderViewModel @Inject constructor(
                 }
 
                 override fun onDestroy(owner: LifecycleOwner) {
+                    unregisterTextSelectionListeners()
                     pdfUiFragment.lifecycle.removeObserver(this)
                 }
             })
@@ -601,102 +607,92 @@ class PdfReaderViewModel @Inject constructor(
     }
 
     private fun registerTextSelectionListenersIfNeeded() {
-        if (textSelectionListenersRegistered) return
+        if (!this::pdfFragment.isInitialized || textSelectionListenersRegistered) {
+            return
+        }
+
+        val changeListener = object : TextSelectionManager.OnTextSelectionChangeListener {
+            override fun onTextSelectionChange(
+                newTextSelection: TextSelection?,
+                currentTextSelection: TextSelection?
+            ): Boolean {
+                val text = newTextSelection?.text?.trim().orEmpty()
+                selectedTextCache = text
+                if (text.isNotBlank()) {
+                    lastStableSelectedText = text
+                }
+                return true
+            }
+        }
+
+        val modeChangeListener = object : TextSelectionManager.OnTextSelectionModeChangeListener {
+            override fun onEnterTextSelectionMode(controller: TextSelectionController) {
+                currentTextSelectionController = controller
+                val text = controller.textSelection?.text?.trim().orEmpty()
+                if (text.isNotBlank()) {
+                    selectedTextCache = text
+                    lastStableSelectedText = text
+                }
+            }
+
+            override fun onExitTextSelectionMode(controller: TextSelectionController) {
+                if (currentTextSelectionController === controller) {
+                    currentTextSelectionController = null
+                }
+                selectedTextCache = ""
+            }
+        }
+
+        pdfFragment.addOnTextSelectionChangeListener(changeListener)
+        pdfFragment.addOnTextSelectionModeChangeListener(modeChangeListener)
+        textSelectionChangeListener = changeListener
+        textSelectionModeChangeListener = modeChangeListener
         textSelectionListenersRegistered = true
-        registerOnTextSelectionChangeListener()
-        registerOnTextSelectionModeChangeListener()
     }
 
-    private fun registerOnTextSelectionChangeListener() {
-        try {
-            val method = pdfFragment.javaClass.methods.firstOrNull {
-                it.name == "addOnTextSelectionChangeListener" && it.parameterTypes.size == 1
-            } ?: return
-            val listenerType = method.parameterTypes.firstOrNull() ?: return
-            if (!listenerType.isInterface) return
-
-            val proxy = Proxy.newProxyInstance(
-                listenerType.classLoader,
-                arrayOf(listenerType)
-            ) { proxy, calledMethod, args ->
-                when (calledMethod.name) {
-                    "equals" -> proxy === args?.getOrNull(0)
-                    "hashCode" -> System.identityHashCode(proxy)
-                    "toString" -> "ZoteroOnTextSelectionChangeListener"
-                    "onTextSelectionChange" -> {
-                        val newSelection = args?.getOrNull(0)
-                        val extracted = extractTextFromTextSelection(newSelection).orEmpty().trim()
-                        cachedSelectedText = extracted
-                        if (extracted.isNotBlank()) {
-                            lastStableSelectedText = extracted
-                        }
-                        true
-                    }
-                    else -> defaultProxyReturn(calledMethod, proxy, args)
-                }
-            }
-            method.invoke(pdfFragment, proxy)
-        } catch (_: Throwable) {
+    private fun unregisterTextSelectionListeners() {
+        if (!this::pdfFragment.isInitialized) {
+            return
         }
+        textSelectionChangeListener?.let(pdfFragment::removeOnTextSelectionChangeListener)
+        textSelectionModeChangeListener?.let(pdfFragment::removeOnTextSelectionModeChangeListener)
+        textSelectionChangeListener = null
+        textSelectionModeChangeListener = null
+        currentTextSelectionController = null
+        textSelectionListenersRegistered = false
+        selectedTextCache = ""
     }
 
-    private fun registerOnTextSelectionModeChangeListener() {
-        try {
-            val method = pdfFragment.javaClass.methods.firstOrNull {
-                it.name == "addOnTextSelectionModeChangeListener" && it.parameterTypes.size == 1
-            } ?: return
-            val listenerType = method.parameterTypes.firstOrNull() ?: return
-            if (!listenerType.isInterface) return
-
-            val proxy = Proxy.newProxyInstance(
-                listenerType.classLoader,
-                arrayOf(listenerType)
-            ) { proxy, calledMethod, args ->
-                when (calledMethod.name) {
-                    "equals" -> proxy === args?.getOrNull(0)
-                    "hashCode" -> System.identityHashCode(proxy)
-                    "toString" -> "ZoteroOnTextSelectionModeChangeListener"
-                    "onExitTextSelectionMode" -> {
-                        cachedSelectedText = ""
-                        Unit
-                    }
-                    else -> defaultProxyReturn(calledMethod, proxy, args)
-                }
-            }
-            method.invoke(pdfFragment, proxy)
-        } catch (_: Throwable) {
-        }
-    }
-
-    private fun defaultProxyReturn(calledMethod: java.lang.reflect.Method, proxy: Any, args: Array<Any?>?): Any? {
-        return when (calledMethod.returnType) {
-            Boolean::class.javaPrimitiveType, java.lang.Boolean::class.java -> true
-            Int::class.javaPrimitiveType, java.lang.Integer::class.java -> 0
-            Long::class.javaPrimitiveType, java.lang.Long::class.java -> 0L
-            Float::class.javaPrimitiveType, java.lang.Float::class.java -> 0f
-            Double::class.javaPrimitiveType, java.lang.Double::class.java -> 0.0
+    private fun defaultListenerReturn(returnType: Class<*>): Any? {
+        return when (returnType) {
+            Boolean::class.javaPrimitiveType, Boolean::class.java -> false
+            Int::class.javaPrimitiveType, Int::class.java -> 0
+            Long::class.javaPrimitiveType, Long::class.java -> 0L
+            Float::class.javaPrimitiveType, Float::class.java -> 0f
+            Double::class.javaPrimitiveType, Double::class.java -> 0.0
             Void.TYPE -> Unit
             else -> null
         }
     }
 
-    private fun extractTextFromTextSelection(selection: Any?): String? {
-        if (selection == null) return null
-        return when (selection) {
-            is String -> selection
-            is CharSequence -> selection.toString()
+    private fun Any?.extractSelectedText(): String? {
+        return when (this) {
+            null -> null
+            is String -> this
+            is CharSequence -> this.toString()
             else -> {
-                val methods = selection.javaClass.methods.filter { it.parameterTypes.isEmpty() }
-                val candidates = listOf("getText", "text")
-                for (name in candidates) {
-                    val method = methods.firstOrNull { it.name == name } ?: continue
-                    val result = runCatching { method.invoke(selection) }.getOrNull()
-                    when (result) {
-                        is String -> if (result.isNotBlank()) return result
-                        is CharSequence -> if (result.isNotBlank()) return result.toString()
-                    }
+                val textMethod = this.javaClass.methods.firstOrNull { method ->
+                    method.parameterTypes.isEmpty() && (
+                        method.name == "getText" ||
+                            method.name == "text" ||
+                            method.name == "getSelectedText"
+                        )
                 }
-                null
+                try {
+                    textMethod?.invoke(this).extractSelectedText()
+                } catch (_: Throwable) {
+                    null
+                }
             }
         }
     }
@@ -752,7 +748,7 @@ class PdfReaderViewModel @Inject constructor(
                             title,
                             object : kotlin.jvm.functions.Function0<Unit> {
                                 override fun invoke() {
-                                    onTranslateToolbarTapped()
+                                    onTranslateActionTapped()
                                 }
                             }
                         ) as PopupToolbarMenuItem
@@ -768,7 +764,7 @@ class PdfReaderViewModel @Inject constructor(
                             0,
                             object : kotlin.jvm.functions.Function0<Unit> {
                                 override fun invoke() {
-                                    onTranslateToolbarTapped()
+                                    onTranslateActionTapped()
                                 }
                             }
                         ) as PopupToolbarMenuItem
@@ -781,7 +777,7 @@ class PdfReaderViewModel @Inject constructor(
                         return constructor.newInstance(
                             ZOTERO_TRANSLATE_MENU_ITEM_ID,
                             title,
-                            Runnable { onTranslateToolbarTapped() }
+                            Runnable { onTranslateActionTapped() }
                         ) as PopupToolbarMenuItem
                     }
 
@@ -822,7 +818,7 @@ class PdfReaderViewModel @Inject constructor(
                     null
                 }
                 if (id == ZOTERO_TRANSLATE_MENU_ITEM_ID) {
-                    onTranslateToolbarTapped()
+                    onTranslateActionTapped()
                     when (method.returnType) {
                         Boolean::class.javaPrimitiveType, Boolean::class.java -> true
                         else -> Unit
@@ -839,8 +835,8 @@ class PdfReaderViewModel @Inject constructor(
         }
     }
 
-    private fun onTranslateToolbarTapped() {
-        val selectedText = currentSelectedText()
+    fun onTranslateActionTapped() {
+        val selectedText = selectedTextCache.ifBlank { currentSelectedText() }.trim()
         if (selectedText.isBlank()) {
             context.longToast(context.getString(org.zotero.android.R.string.translation_no_selected_text))
             return
@@ -881,10 +877,6 @@ class PdfReaderViewModel @Inject constructor(
         }
     }
 
-    fun onTranslateActionTapped() {
-        onTranslateToolbarTapped()
-    }
-
     fun dismissTranslationDialog() {
         updateState {
             copy(
@@ -895,65 +887,67 @@ class PdfReaderViewModel @Inject constructor(
     }
 
     private fun currentSelectedText(): String {
-            val fragmentMethods = pdfFragment.javaClass.methods.filter { it.parameterTypes.isEmpty() }
+        selectedTextCache.trim().takeIf { it.isNotBlank() }?.let { return it }
 
-            val controller = fragmentMethods.firstNotNullOfOrNull { method ->
-                val returnTypeName = method.returnType.name
-                val methodName = method.name
-
-                val looksLikeTextSelectionController =
-                    returnTypeName.contains("TextSelectionController", ignoreCase = true) ||
-                        methodName.contains("TextSelectionController", ignoreCase = true)
-
-                val looksLikeSpecialModeAccessor =
-                    methodName.contains("getCurrentSpecialModeController", ignoreCase = true) ||
-                        methodName.contains("getFragmentSpecialModeController", ignoreCase = true) ||
-                        methodName.contains("getSpecialModeController", ignoreCase = true) ||
-                        methodName.contains("getCurrentlyActiveController", ignoreCase = true) ||
-                        methodName.contains("getActiveController", ignoreCase = true)
-
-                if (!looksLikeTextSelectionController && !looksLikeSpecialModeAccessor) {
-                    return@firstNotNullOfOrNull null
-                }
-
-                runCatching { method.invoke(pdfFragment) }.getOrNull()
-            }
-
-            val textSelection = controller?.javaClass?.methods
-                ?.firstOrNull { it.name == "getTextSelection" && it.parameterTypes.isEmpty() }
-                ?.let { method -> runCatching { method.invoke(controller) }.getOrNull() }
-
-            val directText = extractTextFromTextSelection(textSelection)?.trim()
-            if (!directText.isNullOrBlank()) {
-                return directText
-            }
-        } catch (_: Throwable) {
-        }
-
-        cachedSelectedText.trim().takeIf { it.isNotBlank() }?.let { return it }
-        lastStableSelectedText.trim().takeIf { it.isNotBlank() }?.let { return it }
-
-            val manager = pdfFragment.javaClass.methods.firstOrNull {
-                it.parameterTypes.isEmpty() && (
-                    it.name == "getTextSelectionManager" || it.name == "textSelectionManager"
-                )
-            }?.invoke(pdfFragment)
-
-            val selection = manager?.javaClass?.methods?.firstOrNull {
-                it.parameterTypes.isEmpty() && (
-                    it.name == "getTextSelection" ||
-                        it.name == "textSelection" ||
-                        it.name == "getCurrentTextSelection"
-                    )
-            }?.invoke(manager)
-
-            val text = extractTextFromTextSelection(selection)?.trim()
-            if (!text.isNullOrBlank()) {
+        currentTextSelectionController?.textSelection?.text
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { text ->
+                selectedTextCache = text
+                lastStableSelectedText = text
                 return text
             }
-        } catch (_: Throwable) {
+
+        lastStableSelectedText.trim().takeIf { it.isNotBlank() }?.let { return it }
+
+        fun Any?.extractText(): String? {
+            return when (this) {
+                null -> null
+                is String -> this
+                is CharSequence -> this.toString()
+                is TextSelection -> this.text
+                else -> {
+                    val textMethod = this.javaClass.methods.firstOrNull { method ->
+                        method.parameterTypes.isEmpty() && (
+                            method.name == "getText" ||
+                                method.name == "text" ||
+                                method.name == "getSelectedText" ||
+                                method.name == "getTextSelection"
+                            )
+                    }
+                    try {
+                        textMethod?.invoke(this).extractText()
+                    } catch (_: Throwable) {
+                        null
+                    }
+                }
+            }
         }
 
+        val methodNames = listOf(
+            "getTextSelection",
+            "textSelection",
+            "getTextSelectionManager",
+            "textSelectionManager",
+            "getSelectedText",
+            "selectedText",
+            "getSelection",
+            "selection",
+        )
+        methodNames.forEach { candidate ->
+            val method = pdfFragment.javaClass.methods.firstOrNull {
+                it.parameterTypes.isEmpty() && it.name == candidate
+            }
+            try {
+                val text = method?.invoke(pdfFragment).extractText()?.trim()
+                if (!text.isNullOrBlank()) {
+                    selectedTextCache = text
+                    lastStableSelectedText = text
+                    return text
+                }
+            } catch (_: Throwable) {
+            }
+        }
         return ""
     }
 
@@ -2874,8 +2868,7 @@ class PdfReaderViewModel @Inject constructor(
 
         this@PdfReaderViewModel.pdfUiFragment.lifecycle.addObserver(object: DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
-                val fragment = pdfUiFragment.pdfFragment ?: return
-                this@PdfReaderViewModel.pdfFragment = fragment
+                this@PdfReaderViewModel.pdfFragment = pdfUiFragment.pdfFragment!!
                 this@PdfReaderViewModel.pdfFragment.addDrawableProvider(searchResultHighlighter)
                 addDocumentListener2()
                 addOnAnnotationCreationModeChangeListener()
@@ -2886,6 +2879,7 @@ class PdfReaderViewModel @Inject constructor(
             }
 
             override fun onDestroy(owner: LifecycleOwner) {
+                unregisterTextSelectionListeners()
                 pdfUiFragment.lifecycle.removeObserver(this)
             }
         })
