@@ -4,6 +4,7 @@ data class TranslationSettings(
     val api: TranslationApi = TranslationApi.BAIDU,
     val targetLanguage: String = "zh",
     val showOriginalText: Boolean = true,
+    val autoTranslateDelayMs: Int = 350,
     val baiduAppId: String = "",
     val baiduSecretKey: String = "",
     val apiKey: String = "",
@@ -22,6 +23,7 @@ data class TranslationSettings(
 
         return copy(
             targetLanguage = normalizedTarget,
+            autoTranslateDelayMs = autoTranslateDelayMs.coerceIn(0, 60_000),
             baiduAppId = baiduAppId.trim(),
             baiduSecretKey = baiduSecretKey.trim(),
             apiKey = apiKey.trim(),

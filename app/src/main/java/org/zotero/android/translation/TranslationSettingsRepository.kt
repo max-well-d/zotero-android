@@ -17,6 +17,7 @@ class TranslationSettingsRepository(
                 ?: TranslationApi.BAIDU,
             targetLanguage = prefs.getString(KEY_TARGET_LANGUAGE, "zh") ?: "zh",
             showOriginalText = prefs.getBoolean(KEY_SHOW_ORIGINAL, true),
+            autoTranslateDelayMs = prefs.getInt(KEY_AUTO_TRANSLATE_DELAY_MS, 350),
             baiduAppId = decryptOrEmpty(KEY_BAIDU_APP_ID),
             baiduSecretKey = decryptOrEmpty(KEY_BAIDU_SECRET),
             apiKey = decryptOrEmpty(KEY_API_KEY),
@@ -29,6 +30,7 @@ class TranslationSettingsRepository(
             .putString(KEY_API, normalized.api.name)
             .putString(KEY_TARGET_LANGUAGE, normalized.targetLanguage)
             .putBoolean(KEY_SHOW_ORIGINAL, normalized.showOriginalText)
+            .putInt(KEY_AUTO_TRANSLATE_DELAY_MS, normalized.autoTranslateDelayMs)
             .putString(KEY_BAIDU_APP_ID, cipher.encrypt(normalized.baiduAppId))
             .putString(KEY_BAIDU_SECRET, cipher.encrypt(normalized.baiduSecretKey))
             .putString(KEY_API_KEY, cipher.encrypt(normalized.apiKey))
@@ -51,6 +53,7 @@ class TranslationSettingsRepository(
         const val KEY_API = "api"
         const val KEY_TARGET_LANGUAGE = "targetLanguage"
         const val KEY_SHOW_ORIGINAL = "showOriginal"
+        const val KEY_AUTO_TRANSLATE_DELAY_MS = "autoTranslateDelayMs"
         const val KEY_BAIDU_APP_ID = "baiduAppId"
         const val KEY_BAIDU_SECRET = "baiduSecret"
         const val KEY_API_KEY = "apiKey"

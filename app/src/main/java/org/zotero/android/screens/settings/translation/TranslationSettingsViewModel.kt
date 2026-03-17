@@ -51,6 +51,14 @@ internal class TranslationSettingsViewModel @Inject constructor(
         _settings.value = _settings.value.copy(showOriginalText = showOriginal)
     }
 
+    fun updateAutoTranslateDelayMs(value: String) {
+        val digitsOnly = value.filter(Char::isDigit)
+        val resolvedValue = digitsOnly.toIntOrNull()
+            ?.coerceIn(0, 60_000)
+            ?: 0
+        _settings.value = _settings.value.copy(autoTranslateDelayMs = resolvedValue)
+    }
+
     fun updateBaiduAppId(value: String) {
         _settings.value = _settings.value.copy(baiduAppId = value)
     }

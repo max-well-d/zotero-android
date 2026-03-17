@@ -917,8 +917,11 @@ class PdfReaderViewModel @Inject constructor(
         if (normalizedText.isBlank()) {
             return
         }
+        val delayMs = translationSettingsRepository.getSettings().autoTranslateDelayMs
+            .coerceAtLeast(0)
+            .toLong()
         autoTranslateJob = viewModelScope.launch {
-            delay(350)
+            delay(delayMs)
             translateTextInternal(normalizedText, force = false)
         }
     }

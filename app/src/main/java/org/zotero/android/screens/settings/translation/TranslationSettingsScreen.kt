@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -30,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import org.zotero.android.R
@@ -106,6 +108,17 @@ internal fun TranslationSettingsScreen(
                     title = stringResource(id = R.string.translation_show_original),
                     isChecked = settings.showOriginalText,
                     onCheckedChange = viewModel::updateShowOriginal,
+                )
+
+
+                OutlinedTextField(
+                    value = settings.autoTranslateDelayMs.toString(),
+                    onValueChange = viewModel::updateAutoTranslateDelayMs,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(text = "自动翻译延迟（毫秒）") },
+                    supportingText = { Text(text = "自动翻译开启后，等待该时长再发起翻译") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 )
 
                 NewSettingsDivider()
