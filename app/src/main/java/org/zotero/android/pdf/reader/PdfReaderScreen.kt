@@ -9,18 +9,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.Text
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.res.stringResource
 import androidx.core.view.WindowCompat
-import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowInsetsCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -245,22 +239,11 @@ internal fun PdfReaderScreen(
                 )
             }
         }
-            if (!viewState.isTranslationLoading && viewState.translationDialogState == null) {
-                ExtendedFloatingActionButton(
-                    onClick = viewModel::onTranslateActionTapped,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(16.dp),
-                ) {
-                    Text(text = stringResource(id = org.zotero.android.R.string.translation_action))
-                }
-            }
         }
         PdfAnnotationNavigationView(viewState = viewState, viewModel = viewModel)
         PdfAnnotationMoreNavigationView(viewState = viewState, viewModel = viewModel)
         PdfSettingsView(viewState = viewState, viewModel = viewModel)
         PdfCopyCitationView(viewState = viewState, viewModel = viewModel)
-        PdfTranslationResultDialog(viewState = viewState, viewModel = viewModel)
     }
 
 }

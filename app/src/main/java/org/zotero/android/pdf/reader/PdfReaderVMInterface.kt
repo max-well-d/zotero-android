@@ -61,4 +61,7 @@ interface PdfReaderVMInterface {
     fun onCopyCitation()
     fun onCopyBibliography()
     fun hideCopyCitation()
+    fun onTranslationSourceTextChange(text: String)
+    fun onTranslationAutoTranslateChange(enabled: Boolean)
+    fun translateSidebarText(force: Boolean = true)
 }

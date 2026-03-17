@@ -13,11 +13,13 @@ import org.zotero.android.pdf.reader.PdfReaderViewState
 import org.zotero.android.pdf.reader.sidebar.data.PdfReaderSliderOptions.Annotations
 import org.zotero.android.pdf.reader.sidebar.data.PdfReaderSliderOptions.Outline
 import org.zotero.android.pdf.reader.sidebar.data.PdfReaderSliderOptions.Thumbnails
+import org.zotero.android.pdf.reader.sidebar.data.PdfReaderSliderOptions.Translation
 
 private val sliderOptions = listOf(
     Thumbnails,
     Annotations,
-    Outline
+    Outline,
+    Translation,
 )
 
 @Composable
@@ -29,7 +31,10 @@ internal fun PdfReaderSidebar(
     thumbnailsLazyListState: LazyListState,
 ) {
     val selectorOptions = sliderOptions.map {
-        stringResource(id = it.optionStringId)
+        when (it) {
+            Translation -> "翻译"
+            else -> stringResource(id = it.optionStringId)
+        }
     }
 
     val selectedOption = viewState.sidebarSliderSelectedOption
@@ -81,6 +86,13 @@ internal fun PdfReaderSidebar(
                 vMInterface = vMInterface,
                 viewState = viewState,
                 layoutType = layoutType,
+            )
+        }
+
+        Translation -> {
+            PdfReaderTranslationSidebar(
+                vMInterface = vMInterface,
+                viewState = viewState,
             )
         }
     }

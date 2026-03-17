@@ -69,6 +69,7 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.debounce
@@ -267,6 +268,7 @@ class PdfReaderViewModel @Inject constructor(
     private var textSelectionListenersRegistered = false
     private var textSelectionChangeListener: TextSelectionManager.OnTextSelectionChangeListener? = null
     private var textSelectionModeChangeListener: TextSelectionManager.OnTextSelectionModeChangeListener? = null
+    private var autoTranslateJob: Job? = null
 
     companion object {
         private const val ZOTERO_TRANSLATE_MENU_ITEM_ID = 0x7f0f7a11
@@ -624,17 +626,11 @@ class PdfReaderViewModel @Inject constructor(
                 p1: TextSelection?
             ) {
                 val text = p0?.text?.trim().orEmpty()
-                selectedTextCache = text
-                if (text.isNotBlank()) {
-                    lastStableSelectedText = text
-                }
+                onPdfSelectedTextChanged(text)
                 currentTextSelectionController?.textSelection?.text
                     ?.trim()
                     ?.takeIf { it.isNotBlank() }
-                    ?.let {
-                        selectedTextCache = it
-                        lastStableSelectedText = it
-                    }
+                    ?.let(::onPdfSelectedTextChanged)
             }
         }
 
@@ -643,8 +639,7 @@ class PdfReaderViewModel @Inject constructor(
                 currentTextSelectionController = controller
                 val text = controller.textSelection?.text?.trim().orEmpty()
                 if (text.isNotBlank()) {
-                    selectedTextCache = text
-                    lastStableSelectedText = text
+                    onPdfSelectedTextChanged(text)
                 }
             }
 
@@ -857,35 +852,124 @@ class PdfReaderViewModel @Inject constructor(
 
         updateState {
             copy(
+                showSideBar = true,
+                sidebarSliderSelectedOption = PdfReaderSliderOptions.Translation,
+                translationSourceText = selectedText,
+                translationErrorMessage = null,
+            )
+        }
+        translateTextInternal(selectedText, force = true)
+    }
+
+    override fun translateSidebarText(force: Boolean) {
+        val sourceText = viewState.translationSourceText.trim()
+        if (sourceText.isBlank()) {
+            context.longToast(context.getString(org.zotero.android.R.string.translation_no_selected_text))
+            return
+        }
+        translateTextInternal(sourceText, force = force)
+    }
+
+    override fun onTranslationSourceTextChange(text: String) {
+        updateState {
+            copy(
+                translationSourceText = text,
+                translationErrorMessage = null,
+            )
+        }
+        if (viewState.translationAutoTranslateEnabled) {
+            scheduleAutoTranslate(text)
+        }
+    }
+
+    override fun onTranslationAutoTranslateChange(enabled: Boolean) {
+        updateState {
+            copy(translationAutoTranslateEnabled = enabled)
+        }
+        if (enabled) {
+            scheduleAutoTranslate(viewState.translationSourceText)
+        } else {
+            autoTranslateJob?.cancel()
+            autoTranslateJob = null
+        }
+    }
+
+    private fun onPdfSelectedTextChanged(text: String) {
+        val normalizedText = text.trim()
+        selectedTextCache = normalizedText
+        if (normalizedText.isNotBlank()) {
+            lastStableSelectedText = normalizedText
+        }
+        updateState {
+            copy(
+                translationSourceText = normalizedText,
+                translationErrorMessage = null,
+            )
+        }
+        if (viewState.translationAutoTranslateEnabled && normalizedText.isNotBlank()) {
+            scheduleAutoTranslate(normalizedText)
+        }
+    }
+
+    private fun scheduleAutoTranslate(text: String) {
+        val normalizedText = text.trim()
+        autoTranslateJob?.cancel()
+        if (normalizedText.isBlank()) {
+            return
+        }
+        autoTranslateJob = viewModelScope.launch {
+            delay(350)
+            translateTextInternal(normalizedText, force = false)
+        }
+    }
+
+    private fun translateTextInternal(sourceText: String, force: Boolean) {
+        val normalizedText = sourceText.trim()
+        if (normalizedText.isBlank()) {
+            return
+        }
+        if (!force && normalizedText == viewState.translationLastRequestedText) {
+            return
+        }
+
+        autoTranslateJob?.cancel()
+        updateState {
+            copy(
                 isTranslationLoading = true,
-                translationDialogState = null,
+                translationErrorMessage = null,
+                translationLastRequestedText = normalizedText,
             )
         }
 
         viewModelScope.launch {
-            val showOriginal = translationSettingsRepository.getSettings().showOriginalText
-            translationService.translate(selectedText.trim())
+            translationService.translate(normalizedText)
                 .onSuccess { result ->
                     updateState {
                         copy(
                             isTranslationLoading = false,
+                            translationSourceText = result.originalText,
+                            translationTranslatedText = result.translatedText,
+                            translationApiName = result.api.displayName,
+                            translationErrorMessage = null,
                             translationDialogState = PdfReaderTranslationDialogState(
                                 originalText = result.originalText,
                                 translatedText = result.translatedText,
                                 apiName = result.api.displayName,
-                                showOriginalText = showOriginal,
-                            )
+                                showOriginalText = translationSettingsRepository.getSettings().showOriginalText,
+                            ),
                         )
                     }
                 }
                 .onFailure { throwable ->
                     updateState {
-                        copy(isTranslationLoading = false)
+                        copy(
+                            isTranslationLoading = false,
+                            translationTranslatedText = "",
+                            translationApiName = "",
+                            translationErrorMessage = throwable.message
+                                ?: context.getString(org.zotero.android.R.string.translation_failed),
+                        )
                     }
-                    context.longToast(
-                        throwable.message
-                            ?: context.getString(org.zotero.android.R.string.translation_failed)
-                    )
                 }
         }
     }
@@ -3671,6 +3755,9 @@ class PdfReaderViewModel @Inject constructor(
         updateState {
             copy(sidebarSliderSelectedOption = option)
         }
+        if (option == PdfReaderSliderOptions.Translation && viewState.translationAutoTranslateEnabled) {
+            scheduleAutoTranslate(viewState.translationSourceText)
+        }
     }
 
     private fun createSnapshot(search: String) {
@@ -4066,6 +4153,12 @@ data class PdfReaderViewState(
     val isExportingAnnotatedPdf: Boolean = false,
     val isTranslationLoading: Boolean = false,
     val translationDialogState: PdfReaderTranslationDialogState? = null,
+    val translationSourceText: String = "",
+    val translationTranslatedText: String = "",
+    val translationApiName: String = "",
+    val translationErrorMessage: String? = null,
+    val translationAutoTranslateEnabled: Boolean = false,
+    val translationLastRequestedText: String = "",
 ) : ViewState {
 
     fun isAnnotationSelected(annotationKey: String): Boolean {
